@@ -1,4 +1,7 @@
 # wedowind_docto
+
+# Links de Interes
+# https://github.com/deel-ai/puncc/blob/main/docs/puncc_intro.ipynb
 Proyecto WeDoWind
 
 General description of wind turbine: The ETH owned wind turbine is Aventa AV-7, manufactured by Aventa AG in Switzerland and was commissioned in December 2002. The turbine is operated via a belt-driven generator and a frequency converter with a variable speed drive. The rated power of the Aventa AV-7 is 7 kW, beginning production at a wind speed of 2 m/s and having a cut-off speed of 14 m/s. The rotor diameter is 12.8 m with 3 rotor blades, and a hub height is 18m. The maximum rotational speed of the turbine is 63 rpm. The tower is a tubular steel-reinforced concrete structure, supported on concrete foundation, while the blades are made of glassfiber with a tubular steel main-spar. The turbine is regulated via a variable-speed and variable pitch control system.
