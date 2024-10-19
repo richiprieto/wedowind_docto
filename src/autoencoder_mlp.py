@@ -3,31 +3,32 @@ import torch
 import torch.nn as nn
 
 
+import torch
+import torch.nn as nn
+
+
 class AutoencoderMLP(nn.Module):
     def __init__(self, input_size):
         super(AutoencoderMLP, self).__init__()
-
-        # Encoder
         self.encoder = nn.Sequential(
-            nn.Linear(input_size, 64),
+            nn.Linear(input_size, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
             nn.ReLU(),
             nn.Linear(64, 32),
-            nn.ReLU(),
-            nn.Linear(32, 16),
-            nn.ReLU(),
         )
-
-        # Decoder
         self.decoder = nn.Sequential(
-            nn.Linear(16, 32),
-            nn.ReLU(),
             nn.Linear(32, 64),
             nn.ReLU(),
-            nn.Linear(64, input_size),
-            nn.Sigmoid(),
+            nn.Linear(64, 128),
+            nn.ReLU(),
+            nn.Linear(128, input_size),
         )
 
     def forward(self, x):
+        x = x.to(
+            next(self.parameters()).device
+        )  # Mover los datos al dispositivo del modelo
         encoded = self.encoder(x)
         decoded = self.decoder(encoded)
         return decoded

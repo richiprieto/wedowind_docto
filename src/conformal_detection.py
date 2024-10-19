@@ -2,15 +2,33 @@
 import torch
 import numpy as np
 from train_autoencoder import train_autoencoder
+import pandas as pd
+
+
+import torch
 
 
 def conformal_anomaly_detection(
     autoencoder, data, significance_level=0.1, device="cpu"
 ):
-    autoencoder.eval()
+    """
+    Realiza la detección de anomalías utilizando Conformal Anomaly Detection (CAD).
 
-    # Calcular los errores de reconstrucción para las muestras del dataset normal
-    data_tensor = torch.FloatTensor(data).to(device)
+    :param autoencoder: Modelo de autoencoder entrenado.
+    :param data: Datos de entrada (DataFrame o numpy array).
+    :param significance_level: Nivel de significancia para el cálculo del umbral.
+    :param device: Dispositivo (CPU o GPU).
+    :return: Errores de reconstrucción y umbral de conformidad.
+    """
+    # Asegurarse de que los datos estén en formato numpy array
+    if isinstance(data, pd.DataFrame):
+        data = data.to_numpy()
+
+    data_tensor = torch.FloatTensor(data).to(
+        device
+    )  # Convertir los datos a tensor y mover a dispositivo
+
+    autoencoder.eval()
     with torch.no_grad():
         reconstructed = autoencoder(data_tensor)
 
@@ -32,6 +50,17 @@ def detect_conformal_anomalies(
     significance_level_total=0.05,
     device="cpu",
 ):
+    """
+    Detecta anomalías utilizando Conformal Anomaly Detection para dos niveles de fallos.
+
+    :param autoencoder: Modelo de autoencoder entrenado.
+    :param data: Datos de entrada (DataFrame o numpy array).
+    :param significance_level_prev: Nivel de significancia para detectar un fallo previo.
+    :param significance_level_total: Nivel de significancia para detectar un fallo total.
+    :param device: Dispositivo (CPU o GPU).
+    :return: Errores de reconstrucción, etiquetas de estado (0 = normal, 1 = fallo previo, 2 = fallo total),
+             umbral para fallo previo y umbral para fallo total.
+    """
     reconstruction_error, q_hat_prev = conformal_anomaly_detection(
         autoencoder, data, significance_level=significance_level_prev, device=device
     )
@@ -40,6 +69,7 @@ def detect_conformal_anomalies(
         autoencoder, data, significance_level=significance_level_total, device=device
     )
 
+    # Clasificar el estado de los datos basados en los umbrales
     state_labels = np.zeros_like(reconstruction_error)
     state_labels[reconstruction_error > q_hat_prev] = 1  # Fallo Previo
     state_labels[reconstruction_error > q_hat_total] = 2  # Fallo Total
