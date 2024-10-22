@@ -90,6 +90,8 @@ if __name__ == "__main__":
     model = AutoencoderMLP(input_size)
 
     # Supón que ya has entrenado el autoencoder
+    model_type = "lstm" if isinstance(model, AutoencoderLSTM) else "mpl"
+
     significance_level_prev = 0.1
     significance_level_total = 0.05
 
@@ -102,8 +104,8 @@ if __name__ == "__main__":
         )
     )
 
-    # Mostrar algunos resultados
+    # Guardar algunos resultados con el sufijo del modelo
     for i in range(10):
         print(
-            f"Muestra {i}: Error de reconstrucción = {reconstruction_error[i]:.4f}, Estado = {state_labels[i]}"
+            f"Muestra {i}: Error de reconstrucción = {reconstruction_error[i]:.4f}, Estado = {state_labels[i]}, Modelo = {model_type}"
         )
