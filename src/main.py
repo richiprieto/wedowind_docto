@@ -30,35 +30,44 @@ def main():
     device = "cpu"
 
     # Cargar el dataset saludable
-    path_saludable = "../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
-    file_path_train = os.path.join(path_saludable, "Aventa_Taggenberg_06_02_2022.hdf5")
+    path_saludable = "../../dataset/"
+    file_path_train = os.path.join(path_saludable, "Aventa_Taggenberg_01_11_2022.hdf5")
     json_file_train = os.path.join(path_saludable, "Aventa_sensors.json")
     dataset_name = "Aventa"
 
     # Cargar el dataset con falla
-    path_con_falla = "../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
+    path_con_falla = "../../dataset/"
     file_path_test = os.path.join(path_con_falla, "Aventa_Taggenberg_16_02_2022.hdf5")
     json_file_test = os.path.join(path_con_falla, "Aventa_sensors.json")
     dataset_name = "Aventa"
 
     reader_train = HDF5Reader(file_path_train, json_file_train)
+    # Obtener los índices de corte basados en el tamaño del timestamp de entrenamiento
     train_timestamps = reader_train.print_timestamps(dataset_name)
-    df = reader_train.load_all_signals_for_timestamps(dataset_name, train_timestamps)
-    df = df.drop(columns=['Time', 'Timestamp'])  # Eliminar columnas no necesarias
+    num_train_samples = len(train_timestamps)
+    train_end = int(num_train_samples * 0.6)
+    calibration_end = int(num_train_samples * 0.8)
+    print(train_timestamps)
+    print(num_train_samples)
+    # Dividir el dataset de entrenamiento en función de los índices de corte
+    df_train = reader_train.load_all_signals_for_timestamps(dataset_name, train_timestamps[:train_end])
+    df_calibration = reader_train.load_all_signals_for_timestamps(dataset_name, train_timestamps[train_end:calibration_end])
+    df_valid = reader_train.load_all_signals_for_timestamps(dataset_name, train_timestamps[calibration_end:])
 
+    df_train = df_train.drop(columns=['Time', 'Timestamp'])  # Eliminar columnas no necesarias
+    df_calibration = df_calibration.drop(columns=['Time', 'Timestamp'])  # Eliminar columnas no necesarias
+    df_valid = df_valid.drop(columns=['Time', 'Timestamp'])  # Eliminar columnas no necesarias
 
     reader_test = HDF5Reader(file_path_test, json_file_test)
     test_timestamps = reader_test.print_timestamps(dataset_name)
+    # Solo para probar minimizar el dataset de prueba
+    test_timestamps = test_timestamps[-48:-32]
+    print(test_timestamps)
     df_test = reader_test.load_all_signals_for_timestamps(dataset_name, test_timestamps)
     df_test = df_test.drop(columns=['Time', 'Timestamp'])  # Eliminar columnas no necesarias
     
-    # Dividir en entrenamiento, calibración y validación
-    size_split = int(len(df) * 0.8)
-    # División de datos manteniendo el orden temporal
-    df_train_full, df_valid = df[:size_split], df[size_split:]
-    df_train, df_calibration = df_train_full[:int(size_split * 0.8)], df_train_full[int(size_split * 0.8):]
-
-    print(df.shape, df_train.shape, df_calibration.shape, df_valid.shape)
+    print(df_test.shape, df_train.shape, df_calibration.shape, df_valid.shape)
+    
     ######### Solo a modo de prueba
     df_train = df_train.iloc[-1000:, :]
     df_calibration = df_calibration.iloc[-1000:, :]
