@@ -8,69 +8,92 @@ import pandas as pd
 
 
 def train_autoencoder(
-    model, data, epochs=50, learning_rate=0.001, batch_size=32, device="cpu"
+    model, train_data, val_data, epochs=50, learning_rate=0.001, batch_size=32, patience=5, device="cpu"
 ):
     """
-    Entrena el autoencoder con los datos proporcionados.
+    Entrena el autoencoder y aplica early stopping basado en la pérdida de validación.
 
-    :param model: Modelo del autoencoder.
-    :param data: Datos de entrenamiento (deben estar en formato numpy array o tensor).
+    :param model: Modelo de autoencoder.
+    :param train_data: Datos de entrenamiento (numpy array).
+    :param val_data: Datos de validación (numpy array).
     :param epochs: Número de épocas de entrenamiento.
     :param learning_rate: Tasa de aprendizaje.
-    :param batch_size: Tamaño del batch.
-    :param device: Dispositivo para entrenar (CPU o GPU).
+    :param batch_size: Tamaño de batch.
+    :param patience: Número de épocas para el early stopping.
+    :param device: Dispositivo (CPU o GPU).
+    :return: Modelo entrenado y el historial de pérdidas.
     """
-    # Asegurarse de que los datos estén en formato numpy array antes de convertir a tensor
-    if isinstance(data, pd.DataFrame):
-        data = data.to_numpy()
-
-    data_tensor = torch.FloatTensor(data).to(
-        device
-    )  # Convertir los datos a tensor y mover al dispositivo
-
-    model.to(device)  # Mover el modelo al dispositivo (CPU o GPU)
+    model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     criterion = torch.nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-    dataset = TensorDataset(
-        data_tensor, data_tensor
-    )  # Autoencoder: input y target son los mismos
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    train_loader = torch.utils.data.DataLoader(
+        torch.FloatTensor(train_data),
+        batch_size=batch_size,
+        shuffle=True
+    )
 
-    model.train()
-    loss_history = []  # Inicializar la lista para almacenar el historial de pérdidas
-    best_loss = float('inf')
-    best_model_state = None
+    val_loader = torch.utils.data.DataLoader(
+        torch.FloatTensor(val_data),
+        batch_size=batch_size,
+        shuffle=False
+    )
+
+    best_val_loss = np.inf
+    best_epoch = 0
+    patience_counter = 0
+    loss_history = []
+    val_loss_history = []
 
     for epoch in range(epochs):
-        total_loss = 0
-        for batch_data, _ in dataloader:
-            batch_data = batch_data.to(
-                device
-            )  # Mover los datos del batch al dispositivo
-
+        model.train()
+        epoch_loss = 0
+        for batch_data in train_loader:
+            batch_data = batch_data.to(device)
             optimizer.zero_grad()
             outputs = model(batch_data)
             loss = criterion(outputs, batch_data)
             loss.backward()
             optimizer.step()
+            epoch_loss += loss.item() * batch_data.size(0)
 
-            total_loss += loss.item()
+        epoch_loss /= len(train_loader.dataset)
+        loss_history.append(epoch_loss)
 
-        avg_loss = total_loss / len(dataloader)
-        loss_history.append(avg_loss)  # Almacenar la pérdida promedio de cada época
+        # Validación
+        model.eval()
+        val_loss = 0
+        with torch.no_grad():
+            for batch_data in val_loader:
+                batch_data = batch_data.to(device)
+                outputs = model(batch_data)
+                loss = criterion(outputs, batch_data)
+                val_loss += loss.item() * batch_data.size(0)
 
-        # Save the best model
-        if avg_loss < best_loss:
-            best_loss = avg_loss
+        val_loss /= len(val_loader.dataset)
+        val_loss_history.append(val_loss)
+
+        print(f"Época [{epoch+1}/{epochs}], Pérdida de entrenamiento: {epoch_loss:.6f}, Pérdida de validación: {val_loss:.6f}")
+
+        # Comprobación para early stopping
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_epoch = epoch
             best_model_state = model.state_dict()
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            if patience_counter >= patience:
+                print("Early stopping activado.")
+                break
 
-        if (epoch + 1) % 10 == 0:  # Imprimir cada 10 épocas
-            print(f"Epoch [{epoch+1}/{epochs}], Loss: {avg_loss:.4f}")
-
-    # Load the best model state
+    # Restaurar el mejor modelo
     model.load_state_dict(best_model_state)
-    return model, loss_history  # Devolver el modelo entrenado y el historial de pérdidas
+
+    # Guardar el modelo
+    torch.save(model.state_dict(), 'output/best_model.pth')
+
+    return model, loss_history, val_loss_history
 
 
 if __name__ == "__main__":
