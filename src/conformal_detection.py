@@ -9,36 +9,34 @@ import torch
 
 
 def conformal_anomaly_detection(
-    autoencoder, data, significance_level=0.1, device="cpu"
+    autoencoder, data, calibration_data, significance_level=0.05, device="cpu"
 ):
     """
     Realiza la detección de anomalías utilizando Conformal Anomaly Detection (CAD).
 
     :param autoencoder: Modelo de autoencoder entrenado.
-    :param data: Datos de entrada (DataFrame o numpy array).
+    :param data: Datos de prueba (numpy array).
+    :param calibration_data: Datos de calibración (numpy array).
     :param significance_level: Nivel de significancia para el cálculo del umbral.
     :param device: Dispositivo (CPU o GPU).
     :return: Errores de reconstrucción y umbral de conformidad.
     """
-    # Asegurarse de que los datos estén en formato numpy array
-    if isinstance(data, pd.DataFrame):
-        data = data.to_numpy()
-
-    data_tensor = torch.FloatTensor(data).to(
-        device
-    )  # Convertir los datos a tensor y mover a dispositivo
-
     autoencoder.eval()
-    with torch.no_grad():
-        reconstructed = autoencoder(data_tensor)
-
     mse_loss = torch.nn.MSELoss(reduction="none")
-    reconstruction_error = (
-        mse_loss(reconstructed, data_tensor).mean(dim=1).cpu().numpy()
-    )
 
-    # Obtener el percentil del error de reconstrucción como el umbral de conformidad
-    q_hat = np.quantile(reconstruction_error, 1 - significance_level)
+    with torch.no_grad():
+        # Calcular errores de reconstrucción para el conjunto de calibración
+        calibration_tensor = torch.FloatTensor(calibration_data).to(device)
+        reconstructed_calib = autoencoder(calibration_tensor)
+        calibration_error = mse_loss(reconstructed_calib, calibration_tensor).mean(dim=1).cpu().numpy()
+
+        # Calcular el umbral basado en el conjunto de calibración
+        q_hat = np.quantile(calibration_error, 1 - significance_level)
+
+        # Calcular errores de reconstrucción para los datos de prueba
+        data_tensor = torch.FloatTensor(data).to(device)
+        reconstructed = autoencoder(data_tensor)
+        reconstruction_error = mse_loss(reconstructed, data_tensor).mean(dim=1).cpu().numpy()
 
     return reconstruction_error, q_hat
 

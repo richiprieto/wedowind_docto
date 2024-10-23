@@ -3,12 +3,13 @@ import numpy as np
 import random
 from read_hdf5 import HDF5Reader
 from train_autoencoder import train_autoencoder
-from conformal_detection import detect_conformal_anomalies
-from autoencoder_lstm import AutoencoderLSTM
+from conformal_detection import conformal_anomaly_detection
 from autoencoder_mlp import AutoencoderMLP
 import matplotlib.pyplot as plt
 import os
 import pandas as pd
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
 
 def set_seed(seed=42):
     random.seed(seed)
@@ -18,6 +19,7 @@ def set_seed(seed=42):
         torch.cuda.manual_seed_all(seed)
 
 def main():
+    # Configuración inicial
     set_seed()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -25,94 +27,107 @@ def main():
     device = "cpu"
 
     print(f"Usando el dispositivo: {device}")
+    device = "cpu"
 
-    file_path = "../aventa_failure_flexible_coupling_of_collective_pitch_drive/Aventa_Taggenberg_16_02_2022.hdf5"
-    json_file = "../aventa_failure_flexible_coupling_of_collective_pitch_drive/Aventa_sensors.json"
+    # Cargar el dataset saludable
+    path_saludable = "../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
+    file_path_train = os.path.join(path_saludable, "Aventa_Taggenberg_06_02_2022.hdf5")
+    json_file_train = os.path.join(path_saludable, "Aventa_sensors.json")
     dataset_name = "Aventa"
-    train_timestamp = "04_15_58"
-    test_timestamps = ["17_12_32", "00_55_38", "04_15_58"]
 
-    reader = HDF5Reader(file_path, json_file)
-    reader.print_timestamps(dataset_name)
+    # Cargar el dataset con falla
+    path_con_falla = "../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
+    file_path_test = os.path.join(path_con_falla, "Aventa_Taggenberg_16_02_2022.hdf5")
+    json_file_test = os.path.join(path_con_falla, "Aventa_sensors.json")
+    dataset_name = "Aventa"
 
-    df_train = reader.load_all_signals_for_timestamp(dataset_name, train_timestamp)
-    # solo prueba
-    #df_train = df_train.iloc[:1000]
-    print(df_train.head())
+    reader_train = HDF5Reader(file_path_train, json_file_train)
+    train_timestamps = reader_train.print_timestamps(dataset_name)
+    df = reader_train.load_all_signals_for_timestamps(dataset_name, train_timestamps)
+    df = df.drop(columns=['Time', 'Timestamp'])  # Eliminar columnas no necesarias
 
-    # Convertir los datos en secuencias para LSTM
-    sequence_length = 10  # Puedes ajustar este valor según tus datos
-    train_data = df_train.to_numpy()
-    train_sequences = []
-    for i in range(len(train_data) - sequence_length + 1):
-        train_sequences.append(train_data[i:i+sequence_length])
-    train_sequences = np.array(train_sequences)
 
-    # Definir el modelo AutoencoderLSTM
+    reader_test = HDF5Reader(file_path_test, json_file_test)
+    test_timestamps = reader_test.print_timestamps(dataset_name)
+    df_test = reader_test.load_all_signals_for_timestamps(dataset_name, test_timestamps)
+    df_test = df_test.drop(columns=['Time', 'Timestamp'])  # Eliminar columnas no necesarias
+    
+    # Dividir en entrenamiento, calibración y validación
+    size_split = int(len(df) * 0.8)
+    # División de datos manteniendo el orden temporal
+    df_train_full, df_valid = df[:size_split], df[size_split:]
+    df_train, df_calibration = df_train_full[:int(size_split * 0.8)], df_train_full[int(size_split * 0.8):]
+
+    print(df.shape, df_train.shape, df_calibration.shape, df_valid.shape)
+    ######### Solo a modo de prueba
+    df_train = df_train.iloc[-1000:, :]
+    df_calibration = df_calibration.iloc[-1000:, :]
+    df_valid = df_valid.iloc[-1000:, :]
+    df_test = df_test.iloc[-1000:, :]
+    #exit()
+
+    # Normalizar los datasets
+    print("Normalizando los datasets")
+    scaler = MinMaxScaler()
+    df_train_normalized = scaler.fit_transform(df_train)
+    df_val_normalized = scaler.transform(df_valid)
+    df_calibration_normalized = scaler.transform(df_calibration)
+    df_test_normalized = scaler.transform(df_test)
+
+    # Entrenar el autoencoder con el conjunto de entrenamiento y validación
+    print("Entrenando el autoencoder con early stopping")
     input_size = df_train.shape[1]
-    hidden_size = 64  # Puedes ajustar este valor
-    num_layers = 2    # Puedes ajustar este valor
-    #model = AutoencoderLSTM(input_size, hidden_size, num_layers)
-    model = AutoencoderMLP(input_size)
-
-    # Determinar el tipo de modelo
-    model_type = "lstm" if isinstance(model, AutoencoderLSTM) else "mpl"
-
-    # Entrenar el modelo
-    trained_model, loss_history = train_autoencoder(
-        model, train_sequences, epochs=50, learning_rate=0.001, batch_size=16, device=device
+    model = AutoencoderMLP(input_size).to(device)
+    trained_model, loss_history, val_loss_history = train_autoencoder(
+        model,
+        df_train_normalized,
+        val_data=df_val_normalized,
+        epochs=100,
+        learning_rate=0.001,
+        batch_size=32,
+        patience=10,
+        device=device
     )
 
+    # Guardar gráficos de pérdida
     os.makedirs('output', exist_ok=True)
-
     plt.figure()
-    plt.plot(loss_history)
+    plt.plot(loss_history, label='Pérdida de entrenamiento')
+    plt.plot(val_loss_history, label='Pérdida de validación')
     plt.title('Función de pérdida durante el entrenamiento')
     plt.xlabel('Época')
     plt.ylabel('Pérdida')
-    plt.savefig(f'output/loss_plot_{model_type}.png')
+    plt.legend()
+    plt.savefig('output/loss_plot.png')
     plt.close()
 
-    # Guardar el historial de pérdidas con el sufijo del modelo
-    pd.DataFrame(loss_history, columns=['Loss']).to_csv(f'output/loss_history_{model_type}.csv', index=False)
+    # Cargar el mejor modelo guardado
+    best_model = AutoencoderMLP(input_size).to(device)
+    best_model.load_state_dict(torch.load('output/best_model.pth'))
+    best_model.eval()
 
-    for test_timestamp in test_timestamps:
-        df_test = reader.load_all_signals_for_timestamp(dataset_name, test_timestamp)
+    # Detección de anomalías en el conjunto de prueba
+    print("Realizando detección de anomalías en el conjunto de prueba")
+    reconstruction_error, q_hat = conformal_anomaly_detection(
+        best_model,
+        df_test_normalized,
+        calibration_data=df_calibration_normalized,
+        significance_level=0.05,
+        device=device
+    )
 
-        # Convertir los datos de prueba en secuencias
-        test_data = df_test.to_numpy()
-        test_sequences = []
-        for i in range(len(test_data) - sequence_length + 1):
-            test_sequences.append(test_data[i:i+sequence_length])
-        test_sequences = np.array(test_sequences)
+    # Mostrar resultados
+    plt.figure()
+    plt.plot(reconstruction_error, label='Error de reconstrucción')
+    plt.axhline(y=q_hat, color='r', linestyle='--', label='Umbral de anomalía')
+    plt.title('Detección de anomalías en conjunto de prueba')
+    plt.xlabel('Muestras')
+    plt.ylabel('Error de reconstrucción')
+    plt.legend()
+    plt.savefig('output/anomaly_detection.png')
+    plt.close()
 
-        reconstruction_error, state_labels, q_hat_prev, q_hat_total = detect_conformal_anomalies(
-            trained_model,
-            test_sequences,
-            significance_level_prev=0.1,
-            significance_level_total=0.05,
-            device=device,
-        )
-
-        plt.figure()
-        plt.plot(reconstruction_error, label='Error de reconstrucción')
-        plt.axhline(y=q_hat_prev, color='r', linestyle='--', label='Umbral de fallo previo')
-        plt.axhline(y=q_hat_total, color='g', linestyle='--', label='Umbral de fallo total')
-        plt.title(f'Puntaje de anomalía para {test_timestamp}')
-        plt.xlabel('Índice de muestra')
-        plt.ylabel('Error de reconstrucción')
-        plt.legend()
-        plt.savefig(f'output/anomaly_score_{test_timestamp}_{model_type}.png')
-        plt.close()
-
-        reconstruction_error = np.array(reconstruction_error).flatten()
-        state_labels = np.array(state_labels).flatten()
-
-        # Guardar los resultados de reconstrucción con el sufijo del modelo
-        pd.DataFrame({
-            'Reconstruction Error': reconstruction_error,
-            'State Label': state_labels
-        }).to_csv(f'output/reconstruction_error_{test_timestamp}_{model_type}.csv', index=False)
+    print("Proceso completado. Los resultados se han guardado en la carpeta 'output'.")
 
 if __name__ == "__main__":
     main()
