@@ -56,6 +56,11 @@ def main():
     df_train, df_calibration = df_train_full[:int(size_split * 0.8)], df_train_full[int(size_split * 0.8):]
 
     print(df.shape, df_train.shape, df_calibration.shape, df_valid.shape)
+    ######### Solo a modo de prueba
+    df_train = df_train.iloc[-1000:, :]
+    df_calibration = df_calibration.iloc[-1000:, :]
+    df_valid = df_valid.iloc[-1000:, :]
+    df_test = df_test.iloc[-1000:, :]
     #exit()
 
     # Normalizar los datasets
