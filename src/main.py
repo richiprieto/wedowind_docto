@@ -8,6 +8,7 @@ from autoencoder_mlp import AutoencoderMLP
 import matplotlib.pyplot as plt
 import os
 import pandas as pd
+from sklearn.preprocessing import StandardScaler
 
 def set_seed(seed=42):
     random.seed(seed)
@@ -32,12 +33,17 @@ def main():
     reader.print_timestamps(dataset_name)
 
     df_train = reader.load_all_signals_for_timestamp(dataset_name, train_timestamp)
+    df_train = df_train.drop(columns=['Time'])  # Eliminar la columna 'Time'
     print(df_train.head())
+
+    # Normalizar el dataset de entrenamiento
+    scaler = StandardScaler()
+    df_train_normalized = scaler.fit_transform(df_train)
 
     # Train with the entire dataset
     model = AutoencoderMLP(input_size=df_train.shape[1])
     trained_model, loss_history = train_autoencoder(
-        model, df_train.to_numpy(), epochs=50, learning_rate=0.001, batch_size=32, device=device
+        model, df_train_normalized, epochs=50, learning_rate=0.001, batch_size=32, device=device
     )
 
     os.makedirs('output', exist_ok=True)
@@ -54,10 +60,15 @@ def main():
 
     for test_timestamp in test_timestamps:
         df_test = reader.load_all_signals_for_timestamp(dataset_name, test_timestamp)
+        df_test = df_test.drop(columns=['Time'])  # Eliminar la columna 'Time'
+
+        # Normalizar el dataset de prueba
+        df_test_normalized = scaler.transform(df_test)
+
         reconstruction_error, state_labels, q_hat_prev, q_hat_total = (
             detect_conformal_anomalies(
                 trained_model,
-                df_test.to_numpy(),
+                df_test_normalized,
                 significance_level_prev=0.1,
                 significance_level_total=0.05,
                 device=device,
