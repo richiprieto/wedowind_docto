@@ -99,9 +99,9 @@ class HDF5Reader:
             time_data_shared = None  # Para almacenar la primera columna de Time
 
             # Imprimir todas las claves de los sensores para verificar los nombres correctos
-            print("Sensores disponibles:")
-            for signal_name in dataset.keys():
-                print(signal_name)
+            #print("Sensores disponibles:")
+            #for signal_name in dataset.keys():
+            #    print(signal_name)
 
             # Iterar sobre todos los sensores y cargar datos de Time y Value
             for signal_name in dataset.keys():
@@ -140,12 +140,74 @@ class HDF5Reader:
 
     def print_timestamps(self, dataset_name):
         """
-        Imprime todos los timestamps disponibles en el dataset especificado.
+        Imprime todos los timestamps disponibles en el dataset especificado y los devuelve como una lista.
         
         :param dataset_name: Nombre del dataset principal en el archivo HDF5.
+        :return: Lista de timestamps disponibles.
         """
         with h5py.File(self.hdf5_file, "r") as f:
             dataset = f[dataset_name]
             print("Timestamps disponibles:")
-            for timestamp in dataset.keys():
+            timestamps = list(dataset.keys())  # Convertir las claves a una lista
+            for timestamp in timestamps:
                 print(timestamp)
+            return timestamps
+
+    def load_all_signals_for_timestamps(self, dataset_name, time_stamps):
+        """
+        Carga los datos de todos los sensores para una lista de timestamps específicos,
+        ignorando aquellos sensores que tengan menos de 120,000 datos.
+        Solo se guarda una columna de Time, compartida para todos los sensores.
+        Rota los datos del sensor del generador.
+
+        :param dataset_name: Nombre del dataset principal en el archivo HDF5.
+        :param time_stamps: Lista de marcas de tiempo para las cuales cargar los datos.
+        :return: DataFrame con los datos de los sensores para cada timestamp dado, incluyendo una columna de timestamp.
+        """
+        all_data = []  # Lista para almacenar los DataFrames individuales
+
+        with h5py.File(self.hdf5_file, "r") as f:
+            for time_stamp in time_stamps:
+                dataset = f[dataset_name][time_stamp]
+                sensor_data = {}
+                time_data_shared = None  # Para almacenar la primera columna de Time
+
+                # Iterar sobre todos los sensores y cargar datos de Time y Value
+                for signal_name in dataset.keys():
+                    if signal_name != "ChannelList":  # Evitar cargar la lista de canales
+                        time_data = dataset[signal_name]["Time"][()]
+                        value_data = dataset[signal_name]["Value"][()]
+
+                        # Ignorar los sensores que tienen menos de 120,000 datos
+                        if len(time_data) >= 120000 and len(value_data) >= 120000:
+                            # Usar la primera columna de Time y aplicarla a todos los sensores
+                            if time_data_shared is None:
+                                time_data_shared = (
+                                    time_data.flatten()
+                                )  # Guardar la primera columna de Time
+                                sensor_data["Time"] = (
+                                    time_data_shared  # Añadirla al DataFrame
+                                )
+
+                            # Aplanar las matrices de valores y almacenarlas
+                            sensor_data[f"{signal_name}_Value"] = value_data.flatten()
+
+                # Obtener la orientación del sensor del generador desde el archivo JSON
+                yaw_pitch_roll = self.get_generator_orientation(sensor_id="GEN_01")
+                if yaw_pitch_roll:
+                    sensor_name_prefix = "GEN_ACC"
+                    sensor_data = self.rotate_generator_data(
+                        sensor_data, yaw_pitch_roll, sensor_name_prefix
+                    )
+                else:
+                    print("No se encontró la orientación para el sensor del generador.")
+
+                # Convertir a DataFrame y añadir la columna de timestamp
+                df = pd.DataFrame(sensor_data)
+                df['Timestamp'] = time_stamp  # Añadir la columna de timestamp
+                all_data.append(df)  # Añadir el DataFrame a la lista
+
+        # Concatenar todos los DataFrames en uno solo
+        combined_df = pd.concat(all_data, ignore_index=True)
+
+        return combined_df
