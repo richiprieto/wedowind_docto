@@ -138,7 +138,7 @@ class HDF5Reader:
 
         return df
 
-    def print_timestamps(self, dataset_name):
+    def print_timestamps(self, dataset_name, print_timestamps=False):
         """
         Imprime todos los timestamps disponibles en el dataset especificado y los devuelve como una lista.
         
@@ -147,10 +147,11 @@ class HDF5Reader:
         """
         with h5py.File(self.hdf5_file, "r") as f:
             dataset = f[dataset_name]
-            print("Timestamps disponibles:")
             timestamps = list(dataset.keys())  # Convertir las claves a una lista
-            for timestamp in timestamps:
-                print(timestamp)
+            if print_timestamps:
+                print("Timestamps disponibles:")
+                for timestamp in timestamps:
+                    print(timestamp)
             return timestamps
 
     def load_all_signals_for_timestamps(self, dataset_name, time_stamps):

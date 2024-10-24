@@ -67,7 +67,7 @@ def main():
     reader_test = HDF5Reader(file_path_test, json_file_test)
     test_timestamps = reader_test.print_timestamps(dataset_name)
     ### Solo para probar minimizar el dataset de prueba
-    test_timestamps = test_timestamps[-88:-32] #-32
+    test_timestamps = test_timestamps[-140:-32] #-32
     ###
     #print(test_timestamps)
     print("Cargando el dataset de prueba")
