@@ -136,8 +136,8 @@ def main():
 
         # Guardar gráficos de pérdida
         plt.figure()
-        plt.plot(loss_history, label='Pérdida de entrenamiento')
-        plt.plot(val_loss_history, label='Pérdida de validación')
+        plt.plot(range(1, len(loss_history) + 1), loss_history, label='train loss')
+        plt.plot(range(1, len(val_loss_history) + 1), val_loss_history, label='validation loss')
         plt.title('Función de pérdida durante el entrenamiento')
         plt.xlabel('Época')
         plt.ylabel('Pérdida')
