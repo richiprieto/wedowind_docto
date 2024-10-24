@@ -11,7 +11,7 @@ import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 import argparse  # Importación añadida
-import glob
+from conformal_anomaly_detector import ConformalAnomalyDetector, ManualADPredictor
 
 def set_seed(seed=42):
     random.seed(seed)
@@ -39,13 +39,13 @@ def main():
 
     # Cargar el dataset saludable
     path_saludable = "../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
-    file_path_train = os.path.join(path_saludable, "Aventa_Taggenberg_06_02_2022.hdf5")
+    file_path_train = os.path.join(path_saludable, "Aventa_Taggenberg_15_02_2022.hdf5")
     json_file_train = os.path.join(path_saludable, "Aventa_sensors.json")
     dataset_name = "Aventa"
 
     # Cargar el dataset con falla
     path_con_falla = "../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
-    file_path_test = os.path.join(path_con_falla, "Aventa_Taggenberg_06_02_2022.hdf5")
+    file_path_test = os.path.join(path_con_falla, "Aventa_Taggenberg_16_02_2022.hdf5")
     json_file_test = os.path.join(path_con_falla, "Aventa_sensors.json")
     dataset_name = "Aventa"
 
@@ -53,7 +53,7 @@ def main():
     # Obtener los índices de corte basados en el tamaño del timestamp de entrenamiento
     train_timestamps = reader_train.print_timestamps(dataset_name)
     ### Solo prueba
-    train_timestamps = train_timestamps[-4:]
+    train_timestamps = train_timestamps[-10:]
     ###
     num_train_samples = len(train_timestamps)
     train_end = int(num_train_samples * 0.6)
@@ -171,15 +171,32 @@ def main():
 
     # Detección de anomalías en el conjunto de prueba
     print("Realizando detección de anomalías en el conjunto de prueba")
-    reconstruction_error, q_hat = conformal_anomaly_detection(
-        best_model,
-        df_test_normalized,
-        calibration_data=df_calibration_normalized,
-        significance_level=0.05,
-        device=device
-    )
+    #reconstruction_error, q_hat = conformal_anomaly_detection(
+    #    best_model,
+    #    df_test_normalized,
+    #    calibration_data=df_calibration_normalized,
+    #    significance_level=0.05,
+    #    device=device
+    #)
 
+
+    # Initialize the manual predictor and Conformal Anomaly Detector
+    manual_predictor = ManualADPredictor(best_model)
+    manual_cad = ConformalAnomalyDetector(manual_predictor, fit_ratio=0.7)
+
+    # Fit the manual CAD on the dataset
+    q_hat = manual_cad.fit(train_data=df_train_normalized, calibration_data=df_calibration_normalized, alpha=0.05)
+
+    # Predict anomalies using the manual CAD
+    manual_cad_results = manual_cad.predict(df_test_normalized)
+    manual_cad_anomalies = df_test_normalized[manual_cad_results]
+    manual_cad_not_anomalies = df_test_normalized[~manual_cad_results]
+    
+    print("########################################################")
+    print(manual_cad_results.shape,manual_cad_anomalies.shape, manual_cad_not_anomalies.shape)
+    print("########################################################")
     print(f"Umbral de anomalía: {q_hat}")
+    reconstruction_error = manual_cad.predictor.predict(df_test_normalized)
 
     # Guardar reconstruction_error en CSV
     df_reconstruction = pd.DataFrame({
