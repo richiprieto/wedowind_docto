@@ -10,6 +10,7 @@ import os
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
+import argparse  # Importación añadida
 
 def set_seed(seed=42):
     random.seed(seed)
@@ -19,6 +20,11 @@ def set_seed(seed=42):
         torch.cuda.manual_seed_all(seed)
 
 def main():
+    # Configuración de argumentos
+    parser = argparse.ArgumentParser(description="Entrenamiento y detección de anomalías con Autoencoder")
+    parser.add_argument('--only_testing', action='store_true', help='Modo solo prueba: omite el entrenamiento y realiza la inferencia.')
+    args = parser.parse_args()
+
     # Configuración inicial
     set_seed()
 
@@ -67,7 +73,7 @@ def main():
     reader_test = HDF5Reader(file_path_test, json_file_test)
     test_timestamps = reader_test.print_timestamps(dataset_name)
     ### Solo para probar minimizar el dataset de prueba
-    test_timestamps = test_timestamps[-140:-32] #-32
+    test_timestamps = test_timestamps[-62:-32] #-32
     ###
     #print(test_timestamps)
     print("Cargando el dataset de prueba")
@@ -94,36 +100,44 @@ def main():
     df_test_normalized = scaler.transform(df_test)
     
 
-    # Entrenar el autoencoder con el conjunto de entrenamiento y validación
-    print("Entrenando el autoencoder con early stopping")
-    input_size = df_train.shape[1]
-    model = AutoencoderMLP(input_size).to(device)
-    trained_model, loss_history, val_loss_history = train_autoencoder(
-        model,
-        df_train_normalized,
-        val_data=df_val_normalized,
-        epochs=100,
-        learning_rate=0.001,
-        batch_size=32,
-        patience=5,
-        device=device
-    )
+    if not args.only_testing:
+        # Entrenar el autoencoder con el conjunto de entrenamiento y validación
+        print("Entrenando el autoencoder con early stopping")
+        input_size = df_train.shape[1]
+        model = AutoencoderMLP(input_size).to(device)
+        trained_model, loss_history, val_loss_history = train_autoencoder(
+            model,
+            df_train_normalized,
+            val_data=df_val_normalized,
+            epochs=100,
+            learning_rate=0.001,
+            batch_size=32,
+            patience=5,
+            device=device
+        )
 
-    # Guardar el modelo entrenado
-    torch.save(trained_model.state_dict(), 'output/best_model.pth')
+        # Guardar el modelo entrenado
+        torch.save(trained_model.state_dict(), 'output/best_model.pth')
 
-    # Guardar gráficos de pérdida
-    plt.figure()
-    plt.plot(loss_history, label='Pérdida de entrenamiento')
-    plt.plot(val_loss_history, label='Pérdida de validación')
-    plt.title('Función de pérdida durante el entrenamiento')
-    plt.xlabel('Época')
-    plt.ylabel('Pérdida')
-    plt.legend()
-    plt.savefig('output/loss_plot.png')
-    plt.close()
+        # Guardar gráficos de pérdida
+        plt.figure()
+        plt.plot(loss_history, label='Pérdida de entrenamiento')
+        plt.plot(val_loss_history, label='Pérdida de validación')
+        plt.title('Función de pérdida durante el entrenamiento')
+        plt.xlabel('Época')
+        plt.ylabel('Pérdida')
+        plt.legend()
+        plt.savefig('output/loss_plot.png')
+        plt.close()
+    else:
+        # Verificar que el modelo guardado exista
+        if not os.path.exists('output/best_model.pth'):
+            print("El modelo 'best_model.pth' no existe en la carpeta 'output'. Por favor, entrena el modelo primero.")
+            return
 
     # Cargar el mejor modelo guardado
+    print("Cargando el modelo")
+    input_size = df_train.shape[1]
     best_model = AutoencoderMLP(input_size).to(device)
     best_model.load_state_dict(torch.load('output/best_model.pth'))
     best_model.eval()
