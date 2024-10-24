@@ -11,6 +11,7 @@ import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 import argparse  # Importación añadida
+import glob
 
 def set_seed(seed=42):
     random.seed(seed)
@@ -44,7 +45,7 @@ def main():
 
     # Cargar el dataset con falla
     path_con_falla = "../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
-    file_path_test = os.path.join(path_con_falla, "Aventa_Taggenberg_16_02_2022.hdf5")
+    file_path_test = os.path.join(path_con_falla, "Aventa_Taggenberg_06_02_2022.hdf5")
     json_file_test = os.path.join(path_con_falla, "Aventa_sensors.json")
     dataset_name = "Aventa"
 
@@ -143,6 +144,16 @@ def main():
         plt.legend()
         plt.savefig('output/loss_plot.png')
         plt.close()
+
+        # Guardar loss_history y val_loss_history en CSV
+        df_loss = pd.DataFrame({
+            'Época': list(range(1, len(loss_history) + 1)),
+            'Pérdida_Entrenamiento': loss_history,
+            'Pérdida_Validación': val_loss_history
+        })
+        ruta_loss_csv = os.path.join('output', 'loss_history.csv')
+        df_loss.to_csv(ruta_loss_csv, index=False)
+        print(f"Historial de pérdidas guardado en: {ruta_loss_csv}")
     else:
         # Verificar que el modelo guardado exista
         modelos_existentes = [archivo for archivo in os.listdir('output') if archivo.endswith('.pth')]
@@ -167,6 +178,19 @@ def main():
         significance_level=0.05,
         device=device
     )
+
+    print(f"Umbral de anomalía: {q_hat}")
+
+    # Guardar reconstruction_error en CSV
+    df_reconstruction = pd.DataFrame({
+        'Timestamp': df_test1['Timestamp'],
+        'Error_Reconstrucción': reconstruction_error
+    })
+    # Añadir columna 'Anomalia' donde 1 si supera el umbral, 0 en caso contrario
+    df_reconstruction['Anomalia'] = (df_reconstruction['Error_Reconstrucción'] > q_hat).astype(int)
+    ruta_reconstruction_csv = os.path.join('output', 'reconstruction_error.csv')
+    df_reconstruction.to_csv(ruta_reconstruction_csv, index=False)
+    print(f"Errores de reconstrucción guardados en: {ruta_reconstruction_csv}")
 
     # Crear el gráfico de detección de anomalías
     df_test['Timestamp'] = df_test1['Timestamp']
