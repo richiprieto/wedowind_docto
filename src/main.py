@@ -116,8 +116,22 @@ def main():
             device=device
         )
 
-        # Guardar el modelo entrenado
-        torch.save(trained_model.state_dict(), 'output/best_model.pth')
+        # Determinar la mejor época basada en el menor valor de pérdida de validación
+        mejor_epoca = np.argmin(val_loss_history) + 1  # +1 si las épocas inician en 1
+        mejor_val_loss = val_loss_history[mejor_epoca - 1]
+
+        # Eliminar cualquier archivo .pth existente en la carpeta 'output'
+        for archivo in os.listdir('output'):
+            if archivo.endswith('.pth'):
+                ruta_archivo = os.path.join('output', archivo)
+                os.remove(ruta_archivo)
+                print(f"Eliminado archivo existente: {ruta_archivo}")
+
+        # Guardar el modelo entrenado con el número de época y el valor de pérdida de validación
+        nombre_modelo = f"best_model_ep{mejor_epoca}_val{mejor_val_loss:.6f}.pth"
+        ruta_modelo = os.path.join('output', nombre_modelo)
+        torch.save(trained_model.state_dict(), ruta_modelo)
+        print(f"Modelo guardado como: {ruta_modelo}")
 
         # Guardar gráficos de pérdida
         plt.figure()
@@ -131,15 +145,17 @@ def main():
         plt.close()
     else:
         # Verificar que el modelo guardado exista
-        if not os.path.exists('output/best_model.pth'):
-            print("El modelo 'best_model.pth' no existe en la carpeta 'output'. Por favor, entrena el modelo primero.")
+        modelos_existentes = [archivo for archivo in os.listdir('output') if archivo.endswith('.pth')]
+        if not modelos_existentes:
+            print("No existen modelos guardados en la carpeta 'output'. Por favor, entrena el modelo primero.")
             return
 
     # Cargar el mejor modelo guardado
+    modelos_existentes = [archivo for archivo in os.listdir('output') if archivo.endswith('.pth')]
     print("Cargando el modelo")
     input_size = df_train.shape[1]
     best_model = AutoencoderMLP(input_size).to(device)
-    best_model.load_state_dict(torch.load('output/best_model.pth'))
+    best_model.load_state_dict(torch.load('output/'+modelos_existentes[0]))
     best_model.eval()
 
     # Detección de anomalías en el conjunto de prueba
