@@ -25,18 +25,19 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # en caso de que no jale el gpu
     device = "cpu"
-
     print(f"Usando el dispositivo: {device}")
-    device = "cpu"
+
+    # Asegúrate de que el directorio 'output' existe
+    os.makedirs('output', exist_ok=True)
 
     # Cargar el dataset saludable
-    path_saludable = "../../dataset/"
-    file_path_train = os.path.join(path_saludable, "Aventa_Taggenberg_01_11_2022.hdf5")
+    path_saludable = "../../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
+    file_path_train = os.path.join(path_saludable, "Aventa_Taggenberg_06_02_2022.hdf5")
     json_file_train = os.path.join(path_saludable, "Aventa_sensors.json")
     dataset_name = "Aventa"
 
     # Cargar el dataset con falla
-    path_con_falla = "../../dataset/"
+    path_con_falla = "../../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
     file_path_test = os.path.join(path_con_falla, "Aventa_Taggenberg_16_02_2022.hdf5")
     json_file_test = os.path.join(path_con_falla, "Aventa_sensors.json")
     dataset_name = "Aventa"
@@ -44,14 +45,19 @@ def main():
     reader_train = HDF5Reader(file_path_train, json_file_train)
     # Obtener los índices de corte basados en el tamaño del timestamp de entrenamiento
     train_timestamps = reader_train.print_timestamps(dataset_name)
+    ### Solo prueba
+    train_timestamps = train_timestamps[-8:]
+    ###
     num_train_samples = len(train_timestamps)
     train_end = int(num_train_samples * 0.6)
     calibration_end = int(num_train_samples * 0.8)
-    print(train_timestamps)
-    print(num_train_samples)
+
     # Dividir el dataset de entrenamiento en función de los índices de corte
+    print("Cargando el dataset de entrenamiento")
     df_train = reader_train.load_all_signals_for_timestamps(dataset_name, train_timestamps[:train_end])
+    print("Cargando el dataset de calibración")
     df_calibration = reader_train.load_all_signals_for_timestamps(dataset_name, train_timestamps[train_end:calibration_end])
+    print("Cargando el dataset de validación")
     df_valid = reader_train.load_all_signals_for_timestamps(dataset_name, train_timestamps[calibration_end:])
 
     df_train = df_train.drop(columns=['Time', 'Timestamp'])  # Eliminar columnas no necesarias
@@ -62,17 +68,18 @@ def main():
     test_timestamps = reader_test.print_timestamps(dataset_name)
     # Solo para probar minimizar el dataset de prueba
     test_timestamps = test_timestamps[-48:-32]
-    print(test_timestamps)
+    #print(test_timestamps)
+    print("Cargando el dataset de prueba")
     df_test = reader_test.load_all_signals_for_timestamps(dataset_name, test_timestamps)
     df_test = df_test.drop(columns=['Time', 'Timestamp'])  # Eliminar columnas no necesarias
     
     print(df_test.shape, df_train.shape, df_calibration.shape, df_valid.shape)
     
     ######### Solo a modo de prueba
-    df_train = df_train.iloc[-1000:, :]
-    df_calibration = df_calibration.iloc[-1000:, :]
-    df_valid = df_valid.iloc[-1000:, :]
-    df_test = df_test.iloc[-1000:, :]
+    #df_train = df_train.iloc[-1000:, :]
+    #df_calibration = df_calibration.iloc[-1000:, :]
+    #df_valid = df_valid.iloc[-1000:, :]
+    #df_test = df_test.iloc[-1000:, :]
     #exit()
 
     # Normalizar los datasets
@@ -98,8 +105,10 @@ def main():
         device=device
     )
 
+    # Guardar el modelo entrenado
+    torch.save(trained_model.state_dict(), 'output/best_model.pth')
+
     # Guardar gráficos de pérdida
-    os.makedirs('output', exist_ok=True)
     plt.figure()
     plt.plot(loss_history, label='Pérdida de entrenamiento')
     plt.plot(val_loss_history, label='Pérdida de validación')
