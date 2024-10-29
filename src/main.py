@@ -13,6 +13,12 @@ from sklearn.model_selection import train_test_split
 import argparse  # Importación añadida
 from conformal_anomaly_detector import ConformalAnomalyDetector, ManualADPredictor
 
+
+#######################
+from deel.puncc.api.prediction import BasePredictor
+from deel.puncc.anomaly_detection import SplitCAD
+#######################
+
 def set_seed(seed=42):
     random.seed(seed)
     np.random.seed(seed)
@@ -38,13 +44,13 @@ def main():
     os.makedirs('output', exist_ok=True)
 
     # Cargar el dataset saludable
-    path_saludable = "../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
+    path_saludable = "../../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
     file_path_train = os.path.join(path_saludable, "Aventa_Taggenberg_15_02_2022.hdf5")
     json_file_train = os.path.join(path_saludable, "Aventa_sensors.json")
     dataset_name = "Aventa"
 
     # Cargar el dataset con falla
-    path_con_falla = "../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
+    path_con_falla = "../../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
     file_path_test = os.path.join(path_con_falla, "Aventa_Taggenberg_16_02_2022.hdf5")
     json_file_test = os.path.join(path_con_falla, "Aventa_sensors.json")
     dataset_name = "Aventa"
@@ -113,7 +119,7 @@ def main():
             epochs=100,
             learning_rate=0.001,
             batch_size=32,
-            patience=5,
+            patience=3,
             device=device
         )
 
@@ -179,32 +185,69 @@ def main():
     #    device=device
     #)
 
+    # ----------------------------
+    # Predictor for deel.puncc (SplitCAD)
+    # ----------------------------
+    class ADPredictor(BasePredictor):
+        def predict(self, X):
+            return -self.model.score_samples(X)
+
+    # Wrap the Isolation Forest model in the predictor
+    #if_predictor = ADPredictor(best_model)
+
+    # Instantiate SplitCAD on top of the predictor
+    #split_cad = SplitCAD(if_predictor, train=True, random_state=0)
+
+    # Fit SplitCAD on the dataset with a fit ratio of 0.7
+    #split_cad.fit(z=df_calibration_normalized, fit_ratio=0.9)
+
+    # Predict anomalies using SplitCAD with alpha = 0.05
+    #alpha = 0.05
+    #split_cad_results = split_cad.predict(df_test_normalized, alpha=alpha)
+    #split_cad_anomalies = df_test_normalized[split_cad_results]
+    #split_cad_not_anomalies = df_test_normalized[np.invert(split_cad_results)]
+
+    #print("########################################################")
+    #print(split_cad_results.shape, split_cad_anomalies.shape, split_cad_not_anomalies.shape)
+    #print("########################################################")
+    #print(split_cad_anomalies)
+    #print("########################################################")
+
 
     # Initialize the manual predictor and Conformal Anomaly Detector
     manual_predictor = ManualADPredictor(best_model)
-    manual_cad = ConformalAnomalyDetector(manual_predictor, fit_ratio=0.7)
+    manual_cad_05 = ConformalAnomalyDetector(manual_predictor)
+    manual_cad_10 = ConformalAnomalyDetector(manual_predictor)
 
     # Fit the manual CAD on the dataset
-    q_hat = manual_cad.fit(train_data=df_train_normalized, calibration_data=df_calibration_normalized, alpha=0.05)
+    q_hat_05 = manual_cad_05.fit(train_data=df_train_normalized, calibration_data=df_calibration_normalized, alpha=0.05)
+    q_hat_10 = manual_cad_10.fit(train_data=df_train_normalized, calibration_data=df_calibration_normalized, alpha=0.1)
 
     # Predict anomalies using the manual CAD
-    manual_cad_results = manual_cad.predict(df_test_normalized)
-    manual_cad_anomalies = df_test_normalized[manual_cad_results]
-    manual_cad_not_anomalies = df_test_normalized[~manual_cad_results]
+    manual_cad_results_05 = manual_cad_05.predict(df_test_normalized)
+    manual_cad_results_10 = manual_cad_10.predict(df_test_normalized)
+    manual_cad_anomalies_05 = df_test_normalized[manual_cad_results_05]
+    manual_cad_not_anomalies_05 = df_test_normalized[~manual_cad_results_05]
+    manual_cad_anomalies_10 = df_test_normalized[manual_cad_results_10]
+    manual_cad_not_anomalies_10 = df_test_normalized[~manual_cad_results_10]
     
     print("########################################################")
-    print(manual_cad_results.shape,manual_cad_anomalies.shape, manual_cad_not_anomalies.shape)
+    print(manual_cad_results_05.shape, manual_cad_anomalies_05.shape, manual_cad_not_anomalies_05.shape)
+    print(manual_cad_results_10.shape, manual_cad_anomalies_10.shape, manual_cad_not_anomalies_10.shape)
     print("########################################################")
-    print(f"Umbral de anomalía: {q_hat}")
-    reconstruction_error = manual_cad.predictor.predict(df_test_normalized)
+    print(f"Umbral de anomalía (alpha=0.05): {q_hat_05}")
+    print(f"Umbral de anomalía (alpha=0.1): {q_hat_10}")
+    reconstruction_error = manual_cad_05.predictor.predict(df_test_normalized)
 
     # Guardar reconstruction_error en CSV
     df_reconstruction = pd.DataFrame({
         'Timestamp': df_test1['Timestamp'],
         'Error_Reconstrucción': reconstruction_error
     })
-    # Añadir columna 'Anomalia' donde 1 si supera el umbral, 0 en caso contrario
-    df_reconstruction['Anomalia'] = (df_reconstruction['Error_Reconstrucción'] > q_hat).astype(int)
+    # Añadir columna 'Anomalia_05' donde 1 si supera el umbral de 0.05, 0 en caso contrario
+    df_reconstruction['Anomalia_05'] = (df_reconstruction['Error_Reconstrucción'] > q_hat_05).astype(int)
+    # Añadir columna 'Anomalia_10' donde 1 si supera el umbral de 0.1, 0 en caso contrario
+    df_reconstruction['Anomalia_10'] = (df_reconstruction['Error_Reconstrucción'] > q_hat_10).astype(int)
     ruta_reconstruction_csv = os.path.join('output', 'reconstruction_error.csv')
     df_reconstruction.to_csv(ruta_reconstruction_csv, index=False)
     print(f"Errores de reconstrucción guardados en: {ruta_reconstruction_csv}")
@@ -221,7 +264,8 @@ def main():
     # Crear el gráfico
     plt.figure(figsize=(12, 6))
     plt.plot(reconstruction_error, label='Error de reconstrucción')
-    plt.axhline(y=q_hat, color='r', linestyle='--', label='Umbral de anomalía')
+    plt.axhline(y=q_hat_05, color='r', linestyle='--', label='Umbral de anomalía (alpha=0.05)')
+    plt.axhline(y=q_hat_10, color='g', linestyle='--', label='Umbral de anomalía (alpha=0.1)')
     plt.title('Detección de anomalías en conjunto de prueba')
     plt.xlabel('Muestras')
     plt.ylabel('Error de reconstrucción')

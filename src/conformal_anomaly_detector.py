@@ -16,9 +16,8 @@ class ManualADPredictor:
         return loss.numpy()
 
 class ConformalAnomalyDetector:
-    def __init__(self, predictor, fit_ratio=0.7):
+    def __init__(self, predictor):
         self.predictor = predictor
-        self.fit_ratio = fit_ratio
         self.threshold = None
 
     def fit(self, train_data, calibration_data, alpha=0.05):
