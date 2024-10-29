@@ -9,14 +9,15 @@ import matplotlib.pyplot as plt
 import os
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 import argparse  # Importación añadida
 from conformal_anomaly_detector import ConformalAnomalyDetector, ManualADPredictor
 
 
 #######################
-from deel.puncc.api.prediction import BasePredictor
-from deel.puncc.anomaly_detection import SplitCAD
+#from deel.puncc.api.prediction import BasePredictor
+#from deel.puncc.anomaly_detection import SplitCAD
 #######################
 
 def set_seed(seed=42):
@@ -44,13 +45,13 @@ def main():
     os.makedirs('output', exist_ok=True)
 
     # Cargar el dataset saludable
-    path_saludable = "../../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
+    path_saludable = "../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
     file_path_train = os.path.join(path_saludable, "Aventa_Taggenberg_15_02_2022.hdf5")
     json_file_train = os.path.join(path_saludable, "Aventa_sensors.json")
     dataset_name = "Aventa"
 
     # Cargar el dataset con falla
-    path_con_falla = "../../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
+    path_con_falla = "../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
     file_path_test = os.path.join(path_con_falla, "Aventa_Taggenberg_16_02_2022.hdf5")
     json_file_test = os.path.join(path_con_falla, "Aventa_sensors.json")
     dataset_name = "Aventa"
@@ -106,16 +107,25 @@ def main():
     df_calibration_normalized = scaler.transform(df_calibration)
     df_test_normalized = scaler.transform(df_test)
     
+    # Aplicar PCA con 10 componentes
+    print("Aplicando PCA con 6 componentes")
+    pca = PCA(n_components=6)
+    df_train_pca = pca.fit_transform(df_train_normalized)
+    df_val_pca = pca.transform(df_val_normalized)
+    df_calibration_pca = pca.transform(df_calibration_normalized)
+    df_test_pca = pca.transform(df_test_normalized)
+
+    # Actualizar input_size para el autoencoder
+    input_size = df_train_pca.shape[1]
 
     if not args.only_testing:
         # Entrenar el autoencoder con el conjunto de entrenamiento y validación
         print("Entrenando el autoencoder con early stopping")
-        input_size = df_train.shape[1]
         model = AutoencoderMLP(input_size).to(device)
         trained_model, loss_history, val_loss_history = train_autoencoder(
             model,
-            df_train_normalized,
-            val_data=df_val_normalized,
+            df_train_pca,
+            val_data=df_val_pca,
             epochs=100,
             learning_rate=0.001,
             batch_size=32,
@@ -170,7 +180,6 @@ def main():
     # Cargar el mejor modelo guardado
     modelos_existentes = [archivo for archivo in os.listdir('output') if archivo.endswith('.pth')]
     print("Cargando el modelo")
-    input_size = df_train.shape[1]
     best_model = AutoencoderMLP(input_size).to(device)
     best_model.load_state_dict(torch.load('output/'+modelos_existentes[0]))
     best_model.eval()
@@ -179,8 +188,8 @@ def main():
     print("Realizando detección de anomalías en el conjunto de prueba")
     #reconstruction_error, q_hat = conformal_anomaly_detection(
     #    best_model,
-    #    df_test_normalized,
-    #    calibration_data=df_calibration_normalized,
+    #    df_test_pca,
+    #    calibration_data=df_calibration_pca,
     #    significance_level=0.05,
     #    device=device
     #)
@@ -188,9 +197,9 @@ def main():
     # ----------------------------
     # Predictor for deel.puncc (SplitCAD)
     # ----------------------------
-    class ADPredictor(BasePredictor):
-        def predict(self, X):
-            return -self.model.score_samples(X)
+    #class ADPredictor(BasePredictor):
+    #    def predict(self, X):
+    #        return -self.model.score_samples(X)
 
     # Wrap the Isolation Forest model in the predictor
     #if_predictor = ADPredictor(best_model)
@@ -199,13 +208,13 @@ def main():
     #split_cad = SplitCAD(if_predictor, train=True, random_state=0)
 
     # Fit SplitCAD on the dataset with a fit ratio of 0.7
-    #split_cad.fit(z=df_calibration_normalized, fit_ratio=0.9)
+    #split_cad.fit(z=df_calibration_pca, fit_ratio=0.9)
 
     # Predict anomalies using SplitCAD with alpha = 0.05
     #alpha = 0.05
-    #split_cad_results = split_cad.predict(df_test_normalized, alpha=alpha)
-    #split_cad_anomalies = df_test_normalized[split_cad_results]
-    #split_cad_not_anomalies = df_test_normalized[np.invert(split_cad_results)]
+    #split_cad_results = split_cad.predict(df_test_pca, alpha=alpha)
+    #split_cad_anomalies = df_test_pca[split_cad_results]
+    #split_cad_not_anomalies = df_test_pca[np.invert(split_cad_results)]
 
     #print("########################################################")
     #print(split_cad_results.shape, split_cad_anomalies.shape, split_cad_not_anomalies.shape)
@@ -213,23 +222,22 @@ def main():
     #print(split_cad_anomalies)
     #print("########################################################")
 
-
     # Initialize the manual predictor and Conformal Anomaly Detector
     manual_predictor = ManualADPredictor(best_model)
     manual_cad_05 = ConformalAnomalyDetector(manual_predictor)
     manual_cad_10 = ConformalAnomalyDetector(manual_predictor)
 
-    # Fit the manual CAD on the dataset
-    q_hat_05 = manual_cad_05.fit(train_data=df_train_normalized, calibration_data=df_calibration_normalized, alpha=0.05)
-    q_hat_10 = manual_cad_10.fit(train_data=df_train_normalized, calibration_data=df_calibration_normalized, alpha=0.1)
+    # Fit the manual CAD on la dataset
+    q_hat_05 = manual_cad_05.fit(train_data=df_train_pca, calibration_data=df_calibration_pca, alpha=0.05)
+    q_hat_10 = manual_cad_10.fit(train_data=df_train_pca, calibration_data=df_calibration_pca, alpha=0.1)
 
     # Predict anomalies using the manual CAD
-    manual_cad_results_05 = manual_cad_05.predict(df_test_normalized)
-    manual_cad_results_10 = manual_cad_10.predict(df_test_normalized)
-    manual_cad_anomalies_05 = df_test_normalized[manual_cad_results_05]
-    manual_cad_not_anomalies_05 = df_test_normalized[~manual_cad_results_05]
-    manual_cad_anomalies_10 = df_test_normalized[manual_cad_results_10]
-    manual_cad_not_anomalies_10 = df_test_normalized[~manual_cad_results_10]
+    manual_cad_results_05 = manual_cad_05.predict(df_test_pca)
+    manual_cad_results_10 = manual_cad_10.predict(df_test_pca)
+    manual_cad_anomalies_05 = df_test_pca[manual_cad_results_05]
+    manual_cad_not_anomalies_05 = df_test_pca[~manual_cad_results_05]
+    manual_cad_anomalies_10 = df_test_pca[manual_cad_results_10]
+    manual_cad_not_anomalies_10 = df_test_pca[~manual_cad_results_10]
     
     print("########################################################")
     print(manual_cad_results_05.shape, manual_cad_anomalies_05.shape, manual_cad_not_anomalies_05.shape)
@@ -237,7 +245,7 @@ def main():
     print("########################################################")
     print(f"Umbral de anomalía (alpha=0.05): {q_hat_05}")
     print(f"Umbral de anomalía (alpha=0.1): {q_hat_10}")
-    reconstruction_error = manual_cad_05.predictor.predict(df_test_normalized)
+    reconstruction_error = manual_cad_05.predictor.predict(df_test_pca)
 
     # Guardar reconstruction_error en CSV
     df_reconstruction = pd.DataFrame({
@@ -265,7 +273,7 @@ def main():
     plt.figure(figsize=(12, 6))
     plt.plot(reconstruction_error, label='Error de reconstrucción')
     plt.axhline(y=q_hat_05, color='r', linestyle='--', label='Umbral de anomalía (alpha=0.05)')
-    plt.axhline(y=q_hat_10, color='g', linestyle='--', label='Umbral de anomalía (alpha=0.1)')
+    #plt.axhline(y=q_hat_10, color='g', linestyle='--', label='Umbral de anomalía (alpha=0.1)')
     plt.title('Detección de anomalías en conjunto de prueba')
     plt.xlabel('Muestras')
     plt.ylabel('Error de reconstrucción')
