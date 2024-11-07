@@ -13,6 +13,9 @@ from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 import argparse  # Importación añadida
 from conformal_anomaly_detector import ConformalAnomalyDetector, ManualADPredictor
+import re
+from datetime import datetime
+import h5py
 
 
 #######################
@@ -44,12 +47,63 @@ def main():
     # Asegúrate de que el directorio 'output' existe
     os.makedirs('output', exist_ok=True)
 
+    base_path = "../../"
+
+    # Fecha límite para incluir archivos en el dataset de entrenamiento
+    fecha_limite = datetime.strptime('16_02_2022', '%d_%m_%Y')
+
+    # Expresión regular para identificar el formato de archivo
+    pattern = r"Aventa_Taggenberg_(\d{2})_(\d{2})_(\d{4}).hdf5"
+
+    # Lista para almacenar rutas de archivos de entrenamiento
+    entrenamiento_archivos = []
+
+    # Función para buscar y filtrar archivos en carpetas y subcarpetas
+    for root, dirs, files in os.walk(base_path):
+        for file in files:
+            match = re.match(pattern, file)
+            if match:
+                # Extraer fecha del archivo
+                dia, mes, año = match.groups()
+                fecha_archivo = datetime.strptime(f"{dia}_{mes}_{año}", '%d_%m_%Y')
+                # Incluir archivos anteriores a la fecha límite
+                if fecha_archivo < fecha_limite:
+                    entrenamiento_archivos.append(os.path.join(root, file))
+
     # Cargar el dataset saludable
-    path_saludable = "../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
+    path_saludable = "../../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
     file_path_train = os.path.join(path_saludable, "Aventa_Taggenberg_15_02_2022.hdf5")
     json_file_train = os.path.join(path_saludable, "Aventa_sensors.json")
     dataset_name = "Aventa"
+    
+    # Cargar archivos de entrenamiento y combinarlos en un solo DataFrame
+    datasets = []
+    for archivo in entrenamiento_archivos:
+        reader = HDF5Reader(archivo, json_file_train)
+        # Obtener todos los timestamps del archivo actual
+        timestamps = reader.print_timestamps(dataset_name)
+        for timestamp in timestamps:
+            try:
+                # Cargar los datos para el timestamp actual
+                df = reader.load_all_signals_for_timestamps(dataset_name, [timestamp])
+                # Eliminar la columna 'Time'
+                df = df.drop(columns=['Time'])
+                datasets.append(df)
+            except KeyError as e:
+                print(f"Saltando timestamp {timestamp} debido a claves faltantes: {e}")
+            except Exception as e:
+                print(f"Error al procesar el timestamp {timestamp}: {e}")
+    
+    # Combinar todos los DataFrames en uno solo si hay datos válidos
+    if datasets:
+        df_entrenamiento = pd.concat(datasets, ignore_index=True)
+        print(f"Dataset de entrenamiento combinado tiene {df_entrenamiento.shape[0]} filas y {df_entrenamiento.shape[1]} columnas.")
+    else:
+        print("No se cargaron datos de entrenamiento debido a la falta de claves requeridas.")
 
+    print(f"{len(entrenamiento_archivos)} archivos encontrados para el dataset de entrenamiento.")
+
+    exit()
     # Cargar el dataset con falla
     path_con_falla = "../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
     file_path_test = os.path.join(path_con_falla, "Aventa_Taggenberg_16_02_2022.hdf5")
