@@ -11,18 +11,18 @@ class AutoencoderMLP(nn.Module):
     def __init__(self, input_size):
         super(AutoencoderMLP, self).__init__()
         self.encoder = nn.Sequential(
-            nn.Linear(input_size, 128),
+            nn.Linear(input_size, 32),
             nn.ReLU(),
-            nn.Linear(128, 64),
+            nn.Linear(32, 16),
             nn.ReLU(),
-            nn.Linear(64, 32),
+            nn.Linear(16, 8),
         )
         self.decoder = nn.Sequential(
-            nn.Linear(32, 64),
+            nn.Linear(8, 16),
             nn.ReLU(),
-            nn.Linear(64, 128),
+            nn.Linear(16, 32),
             nn.ReLU(),
-            nn.Linear(128, input_size),
+            nn.Linear(32, input_size),
         )
 
     def forward(self, x):
