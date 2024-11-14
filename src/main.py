@@ -47,111 +47,86 @@ def main():
     # Asegúrate de que el directorio 'output' existe
     os.makedirs('output', exist_ok=True)
 
-    base_path = "../../"
+    base_path = "../"
 
-    # Fecha límite para incluir archivos en el dataset de entrenamiento
-    fecha_limite = datetime.strptime('16_02_2022', '%d_%m_%Y')
-
-    # Expresión regular para identificar el formato de archivo
-    pattern = r"Aventa_Taggenberg_(\d{2})_(\d{2})_(\d{4}).hdf5"
-
-    # Lista para almacenar rutas de archivos de entrenamiento
-    entrenamiento_archivos = []
-
-    # Función para buscar y filtrar archivos en carpetas y subcarpetas
-    for root, dirs, files in os.walk(base_path):
-        for file in files:
-            match = re.match(pattern, file)
-            if match:
-                # Extraer fecha del archivo
-                dia, mes, año = match.groups()
-                fecha_archivo = datetime.strptime(f"{dia}_{mes}_{año}", '%d_%m_%Y')
-                # Incluir archivos anteriores a la fecha límite
-                if fecha_archivo < fecha_limite:
-                    entrenamiento_archivos.append(os.path.join(root, file))
-
-    # Cargar el dataset saludable
-    path_saludable = "../../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
-    file_path_train = os.path.join(path_saludable, "Aventa_Taggenberg_15_02_2022.hdf5")
+# Cargar el dataset saludable
+    path_saludable = "../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
+    file_path_train = os.path.join(path_saludable, "Aventa_Taggenberg_16_02_2022.hdf5")
     json_file_train = os.path.join(path_saludable, "Aventa_sensors.json")
-    dataset_name = "Aventa"
-    
-    # Cargar archivos de entrenamiento y combinarlos en un solo DataFrame
-    datasets = []
-    for archivo in entrenamiento_archivos:
-        reader = HDF5Reader(archivo, json_file_train)
-        # Obtener todos los timestamps del archivo actual
-        timestamps = reader.print_timestamps(dataset_name)
-        for timestamp in timestamps:
-            try:
-                # Cargar los datos para el timestamp actual
-                df = reader.load_all_signals_for_timestamps(dataset_name, [timestamp])
-                # Eliminar la columna 'Time'
-                df = df.drop(columns=['Time'])
-                datasets.append(df)
-            except KeyError as e:
-                print(f"Saltando timestamp {timestamp} debido a claves faltantes: {e}")
-            except Exception as e:
-                print(f"Error al procesar el timestamp {timestamp}: {e}")
-    
-    # Combinar todos los DataFrames en uno solo si hay datos válidos
-    if datasets:
-        df_entrenamiento = pd.concat(datasets, ignore_index=True)
-        print(f"Dataset de entrenamiento combinado tiene {df_entrenamiento.shape[0]} filas y {df_entrenamiento.shape[1]} columnas.")
-    else:
-        print("No se cargaron datos de entrenamiento debido a la falta de claves requeridas.")
-
-    print(f"{len(entrenamiento_archivos)} archivos encontrados para el dataset de entrenamiento.")
-
-    exit()
-    # Cargar el dataset con falla
-    path_con_falla = "../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
-    file_path_test = os.path.join(path_con_falla, "Aventa_Taggenberg_16_02_2022.hdf5")
-    json_file_test = os.path.join(path_con_falla, "Aventa_sensors.json")
     dataset_name = "Aventa"
 
     reader_train = HDF5Reader(file_path_train, json_file_train)
-    # Obtener los índices de corte basados en el tamaño del timestamp de entrenamiento
-    train_timestamps = reader_train.print_timestamps(dataset_name)
-    ### Solo prueba
-    train_timestamps = train_timestamps[-10:]
-    ###
-    num_train_samples = len(train_timestamps)
-    train_end = int(num_train_samples * 0.6)
-    calibration_end = int(num_train_samples * 0.8)
+    
+    # Obtener todos los timestamps del dataset
+    train_timestamps = reader_train.print_timestamps(dataset_name, print_timestamps=False)
+    print(f"Total de timestamps disponibles: {len(train_timestamps)}")
 
-    # Dividir el dataset de entrenamiento en función de los índices de corte
+    # Verificar que hay suficientes timestamps
+    if len(train_timestamps) < 100:
+        print(f"Error: Se requieren al menos 100 timestamps para la división, pero solo se encontraron {len(train_timestamps)}.")
+        return
+
+    # Dividir el dataset en dos partes:
+    # - Primeros 100 timestamps para entrenamiento, calibración y validación
+    # - Resto de los timestamps para prueba
+    subset_size = 100
+    train_subset = train_timestamps[:subset_size]
+    # Solo para probar minimizar el dataset de entrenamiento, cuestiones de tiempo
+    train_subset = train_subset[:10]
+    #print(train_subset)
+
+    #test_subset = train_timestamps[subset_size:subset_size+10]
+    #test_subset = train_timestamps[len(train_subset):len(train_subset)+10]
+    test_subset = train_timestamps[22:62]
+    # Dividir los primeros 100 timestamps en entrenamiento, calibración y validación
+    train_end = int(0.8 * len(train_subset))  # 80 timestamps para entrenamiento
+    print(train_end)
+    calibration_end = int(0.9 * len(train_subset))  # 10 timestamps para calibración
+    print(calibration_end)
+    validation_end = len(train_subset)  # 10 timestamps para validación
+
+    print("Dividiendo el dataset en conjuntos de entrenamiento, calibración, validación y prueba")
+
+    # Cargar el dataset de entrenamiento
     print("Cargando el dataset de entrenamiento")
-    df_train = reader_train.load_all_signals_for_timestamps(dataset_name, train_timestamps[:train_end])
+    df_train = reader_train.load_all_signals_for_timestamps(dataset_name, train_subset[:train_end])
+    if df_train.empty:
+        print("Error: No se pudieron cargar datos para el conjunto de entrenamiento.")
+        return
+
+    # Cargar el dataset de calibración
     print("Cargando el dataset de calibración")
-    df_calibration = reader_train.load_all_signals_for_timestamps(dataset_name, train_timestamps[train_end:calibration_end])
+    df_calibration = reader_train.load_all_signals_for_timestamps(dataset_name, train_subset[train_end:calibration_end])
+    if df_calibration.empty:
+        print("Error: No se pudieron cargar datos para el conjunto de calibración.")
+        return
+
+    # Cargar el dataset de validación
     print("Cargando el dataset de validación")
-    df_valid = reader_train.load_all_signals_for_timestamps(dataset_name, train_timestamps[calibration_end:])
+    df_valid = reader_train.load_all_signals_for_timestamps(dataset_name, train_subset[calibration_end:validation_end])
+    if df_valid.empty:
+        print("Error: No se pudieron cargar datos para el conjunto de validación.")
+        return
 
-    df_train = df_train.drop(columns=['Time', 'Timestamp'])  # Eliminar columnas no necesarias
-    df_calibration = df_calibration.drop(columns=['Time', 'Timestamp'])  # Eliminar columnas no necesarias
-    df_valid = df_valid.drop(columns=['Time', 'Timestamp'])  # Eliminar columnas no necesarias
-
-    reader_test = HDF5Reader(file_path_test, json_file_test)
-    test_timestamps = reader_test.print_timestamps(dataset_name)
-    ### Solo para probar minimizar el dataset de prueba
-    test_timestamps = test_timestamps[-62:-32] #-32
-    ###
-    #print(test_timestamps)
+    # Cargar el dataset de prueba
     print("Cargando el dataset de prueba")
-    df_test = reader_test.load_all_signals_for_timestamps(dataset_name, test_timestamps)
-    df_test = df_test.drop(columns=['Time'])  # Eliminamos solo 'Time', conservamos 'Timestamp'
+    df_test = reader_train.load_all_signals_for_timestamps(dataset_name, test_subset)
+    if df_test.empty:
+        print("Error: No se pudieron cargar datos para el conjunto de prueba.")
+        return
+
+    # Eliminar columnas no necesarias
+    df_train = df_train.drop(columns=['Time', 'Timestamp'], errors='ignore')
+    df_calibration = df_calibration.drop(columns=['Time', 'Timestamp'], errors='ignore')
+    df_valid = df_valid.drop(columns=['Time', 'Timestamp'], errors='ignore')
     df_test1 = df_test.copy()
-    df_test = df_test.drop(columns=['Timestamp'])
-    
-    print(df_test.shape, df_train.shape, df_calibration.shape, df_valid.shape)
-    
-    ######### Solo a modo de prueba
-    #df_train = df_train.iloc[-1000:, :]
-    #df_calibration = df_calibration.iloc[-1000:, :]
-    #df_valid = df_valid.iloc[-1000:, :]
-    #df_test = df_test.iloc[-1000:, :]
-    #exit()
+    df_test = df_test.drop(columns=['Time', 'Timestamp'], errors='ignore')
+
+    print(f"Dimensiones de los conjuntos de datos:")
+    print(f"Entrenamiento: {df_train.shape}")
+    print(f"Calibración: {df_calibration.shape}")
+    print(f"Validación: {df_valid.shape}")
+    print(f"Prueba: {df_test.shape}")
 
     # Normalizar los datasets
     print("Normalizando los datasets")
@@ -160,17 +135,52 @@ def main():
     df_val_normalized = scaler.transform(df_valid)
     df_calibration_normalized = scaler.transform(df_calibration)
     df_test_normalized = scaler.transform(df_test)
-    
-    # Aplicar PCA con 10 componentes
-    print("Aplicando PCA con 6 componentes")
-    pca = PCA(n_components=6)
-    df_train_pca = pca.fit_transform(df_train_normalized)
-    df_val_pca = pca.transform(df_val_normalized)
-    df_calibration_pca = pca.transform(df_calibration_normalized)
-    df_test_pca = pca.transform(df_test_normalized)
 
-    # Actualizar input_size para el autoencoder
-    input_size = df_train_pca.shape[1]
+    # Parámetros de ventana
+    window_size = 400
+    step_size = 100
+
+    # Función para crear ventanas
+    def create_windows(data, window_size, step_size):
+        windows = []
+        for start in range(0, len(data) - window_size + 1, step_size):
+            end = start + window_size
+            window = data[start:end].flatten()  # Aplanar cada ventana para usar con capas lineales
+            windows.append(window)
+        return np.array(windows)
+    
+    def create_windowed_timestamps(timestamps, window_size, step_size):
+        windowed_timestamps = []
+        total_windows = (len(timestamps) - window_size) // step_size + 1
+        for i in range(total_windows):
+            start = i * step_size
+            end = start + window_size
+            # Usar el timestamp central de la ventana
+            central_index = start + window_size // 2
+            if central_index < len(timestamps):
+                windowed_timestamps.append(timestamps.iloc[central_index])
+            else:
+                windowed_timestamps.append(timestamps.iloc[-1])
+        return windowed_timestamps
+    
+         # Crear timestamps ajustados para las ventanas de prueba
+    print("Ajustando timestamps para las ventanas de prueba")
+    windowed_timestamps = pd.Series(create_windowed_timestamps(df_test1['Timestamp'], window_size, step_size))
+    print(f"Número de timestamps ajustados: {len(windowed_timestamps)}")
+
+    # Crear ventanas
+    df_train_windows = create_windows(df_train_normalized, window_size, step_size)
+    df_val_windows = create_windows(df_val_normalized, window_size, step_size)
+    df_calibration_windows = create_windows(df_calibration_normalized, window_size, step_size)
+    df_test_windows = create_windows(df_test_normalized, window_size, step_size)
+    print("Forma de las ventanas:")
+    print(f"Entrenamiento: {df_train_windows.shape}")
+    print(f"Validación: {df_val_windows.shape}")
+    print(f"Calibración: {df_calibration_windows.shape}")
+    print(f"Prueba: {df_test_windows.shape}")
+
+    # Dimensión de entrada
+    input_size = df_train_windows.shape[1]
 
     if not args.only_testing:
         # Entrenar el autoencoder con el conjunto de entrenamiento y validación
@@ -178,8 +188,8 @@ def main():
         model = AutoencoderMLP(input_size).to(device)
         trained_model, loss_history, val_loss_history = train_autoencoder(
             model,
-            df_train_pca,
-            val_data=df_val_pca,
+            df_train_windows,
+            val_data=df_val_windows,
             epochs=100,
             learning_rate=0.001,
             batch_size=32,
@@ -282,16 +292,17 @@ def main():
     manual_cad_10 = ConformalAnomalyDetector(manual_predictor)
 
     # Fit the manual CAD on la dataset
-    q_hat_05 = manual_cad_05.fit(train_data=df_train_pca, calibration_data=df_calibration_pca, alpha=0.05)
-    q_hat_10 = manual_cad_10.fit(train_data=df_train_pca, calibration_data=df_calibration_pca, alpha=0.1)
+    q_hat_05 = manual_cad_05.fit(train_data=df_train_windows, calibration_data=df_calibration_windows, alpha=0.05)
+    q_hat_10 = manual_cad_10.fit(train_data=df_train_windows, calibration_data=df_calibration_windows, alpha=0.1)
 
+    df_test_windows = df_test_windows #pd.concat([df_val_windows, df_test_windows])
     # Predict anomalies using the manual CAD
-    manual_cad_results_05 = manual_cad_05.predict(df_test_pca)
-    manual_cad_results_10 = manual_cad_10.predict(df_test_pca)
-    manual_cad_anomalies_05 = df_test_pca[manual_cad_results_05]
-    manual_cad_not_anomalies_05 = df_test_pca[~manual_cad_results_05]
-    manual_cad_anomalies_10 = df_test_pca[manual_cad_results_10]
-    manual_cad_not_anomalies_10 = df_test_pca[~manual_cad_results_10]
+    manual_cad_results_05 = manual_cad_05.predict(df_test_windows)
+    manual_cad_results_10 = manual_cad_10.predict(df_test_windows)
+    manual_cad_anomalies_05 = df_test_windows[manual_cad_results_05]
+    manual_cad_not_anomalies_05 = df_test_windows[~manual_cad_results_05]
+    manual_cad_anomalies_10 = df_test_windows[manual_cad_results_10]
+    manual_cad_not_anomalies_10 = df_test_windows[~manual_cad_results_10]
     
     print("########################################################")
     print(manual_cad_results_05.shape, manual_cad_anomalies_05.shape, manual_cad_not_anomalies_05.shape)
@@ -299,11 +310,11 @@ def main():
     print("########################################################")
     print(f"Umbral de anomalía (alpha=0.05): {q_hat_05}")
     print(f"Umbral de anomalía (alpha=0.1): {q_hat_10}")
-    reconstruction_error = manual_cad_05.predictor.predict(df_test_pca)
+    reconstruction_error = manual_cad_05.predictor.predict(df_test_windows)
 
     # Guardar reconstruction_error en CSV
     df_reconstruction = pd.DataFrame({
-        'Timestamp': df_test1['Timestamp'],
+        'Timestamp': windowed_timestamps,
         'Error_Reconstrucción': reconstruction_error
     })
     # Añadir columna 'Anomalia_05' donde 1 si supera el umbral de 0.05, 0 en caso contrario
@@ -314,27 +325,28 @@ def main():
     df_reconstruction.to_csv(ruta_reconstruction_csv, index=False)
     print(f"Errores de reconstrucción guardados en: {ruta_reconstruction_csv}")
 
-    # Crear el gráfico de detección de anomalías
-    df_test['Timestamp'] = df_test1['Timestamp']
-
-    # Obtener el número de muestras por timestamp
-    num_muestras_por_timestamp = len(reconstruction_error) // len(test_timestamps)
-
-    # Calcular las posiciones en el eje x donde inicia cada timestamp
-    xticks_positions = [i * num_muestras_por_timestamp for i in range(len(test_timestamps))]
-
-    # Crear el gráfico
+        # Usar los timestamps ajustados
     plt.figure(figsize=(12, 6))
     plt.plot(reconstruction_error, label='Error de reconstrucción')
     plt.axhline(y=q_hat_05, color='r', linestyle='--', label='Umbral de anomalía (alpha=0.05)')
-    #plt.axhline(y=q_hat_10, color='g', linestyle='--', label='Umbral de anomalía (alpha=0.1)')
+    plt.axhline(y=q_hat_10, color='g', linestyle='--', label='Umbral de anomalía (alpha=0.1)')
     plt.title('Detección de anomalías en conjunto de prueba')
     plt.xlabel('Muestras')
     plt.ylabel('Error de reconstrucción')
     plt.legend()
 
-    # Establecer los ticks en las posiciones calculadas y utilizar 'test_timestamps' como etiquetas
-    plt.xticks(ticks=xticks_positions, labels=test_timestamps, rotation='vertical')
+    # Identificar los índices de las primeras ocurrencias de cada timestamp único
+    unique_timestamps = []
+    unique_indices = []
+    previous_ts = None
+    for idx, ts in enumerate(windowed_timestamps):
+        if ts != previous_ts:
+            unique_timestamps.append(ts)
+            unique_indices.append(idx)
+            previous_ts = ts
+
+    # Establecer los ticks en las posiciones identificadas y asignar sus etiquetas
+    plt.xticks(ticks=unique_indices, labels=unique_timestamps, rotation='vertical')
 
     plt.tight_layout()
     plt.savefig('output/anomaly_detection.png')

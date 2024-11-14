@@ -6,15 +6,17 @@ from scipy.spatial.transform import Rotation
 
 
 class HDF5Reader:
-    def __init__(self, hdf5_file, json_file):
+    def __init__(self, hdf5_file, json_file, debug=False):
         """
         Inicializa el lector de archivos HDF5 y JSON.
 
         :param hdf5_file: Ruta al archivo HDF5.
         :param json_file: Ruta al archivo JSON con las especificaciones de los sensores.
+        :param debug: Habilita el modo de depuración para imprimir mensajes adicionales.
         """
         self.hdf5_file = hdf5_file
         self.json_file = json_file
+        self.debug = debug
         self.sensors_specs = self.load_sensors_specs()
 
     def load_sensors_specs(self):
@@ -50,32 +52,26 @@ class HDF5Reader:
         :param sensor_name_prefix: Prefijo del nombre del sensor (por ejemplo: "GEN_ACC").
         :return: Diccionario con los datos rotados.
         """
-        # Nombres de los sensores del generador
         try:
             Xs = sensor_data[f"{sensor_name_prefix}_XX_01_Value"]
             Ys = sensor_data[f"{sensor_name_prefix}_YY_01_Value"]
             Zs = sensor_data[f"{sensor_name_prefix}_ZZ_01_Value"]
         except KeyError:
-            print(
-                f"Error: No se encontraron las claves para {sensor_name_prefix}_XX_01, {sensor_name_prefix}_YY_01, {sensor_name_prefix}_ZZ_01"
-            )
+            if self.debug:
+                print(
+                    f"Error: No se encontraron las claves para {sensor_name_prefix}_XX_01, {sensor_name_prefix}_YY_01, {sensor_name_prefix}_ZZ_01"
+                )
             return sensor_data
 
-        # Crear un array con los datos originales de aceleración
-        accelerometer_data = np.vstack(
-            [Xs, Ys, Zs]
-        ).T  # Cada fila es una muestra [X, Y, Z]
+        accelerometer_data = np.vstack([Xs, Ys, Zs]).T
 
-        # Aplicar la rotación a los datos de aceleración
         rotation = Rotation.from_euler("ZYX", yaw_pitch_roll, degrees=True)
         rotated_accelerometer_data = rotation.apply(accelerometer_data)
 
-        # Asignar los datos rotados a las nuevas columnas
         sensor_data[f"{sensor_name_prefix}_Xt"] = rotated_accelerometer_data[:, 0]
         sensor_data[f"{sensor_name_prefix}_Yt"] = rotated_accelerometer_data[:, 1]
         sensor_data[f"{sensor_name_prefix}_Zt"] = rotated_accelerometer_data[:, 2]
 
-        # Eliminar las columnas originales (opcional)
         del sensor_data[f"{sensor_name_prefix}_XX_01_Value"]
         del sensor_data[f"{sensor_name_prefix}_YY_01_Value"]
         del sensor_data[f"{sensor_name_prefix}_ZZ_01_Value"]
@@ -96,34 +92,23 @@ class HDF5Reader:
         with h5py.File(self.hdf5_file, "r") as f:
             dataset = f[dataset_name][time_stamp]
             sensor_data = {}
-            time_data_shared = None  # Para almacenar la primera columna de Time
+            time_data_shared = None
 
-            # Imprimir todas las claves de los sensores para verificar los nombres correctos
-            #print("Sensores disponibles:")
-            #for signal_name in dataset.keys():
-            #    print(signal_name)
-
-            # Iterar sobre todos los sensores y cargar datos de Time y Value
             for signal_name in dataset.keys():
-                if signal_name != "ChannelList":  # Evitar cargar la lista de canales
+                if signal_name != "ChannelList":
                     time_data = dataset[signal_name]["Time"][()]
                     value_data = dataset[signal_name]["Value"][()]
 
-                    # Ignorar los sensores que tienen menos de 120,000 datos
                     if len(time_data) >= 120000 and len(value_data) >= 120000:
-                        # Usar la primera columna de Time y aplicarla a todos los sensores
                         if time_data_shared is None:
-                            time_data_shared = (
-                                time_data.flatten()
-                            )  # Guardar la primera columna de Time
-                            sensor_data["Time"] = (
-                                time_data_shared  # Añadirla al DataFrame
-                            )
+                            time_data_shared = time_data.flatten()
+                            sensor_data["Time"] = time_data_shared
 
-                        # Aplanar las matrices de valores y almacenarlas
                         sensor_data[f"{signal_name}_Value"] = value_data.flatten()
+                    else:
+                        if self.debug:
+                            print(f"Advertencia: Sensor {signal_name} en el timestamp {time_stamp} tiene menos de 120,000 datos y será ignorado.")
 
-            # Obtener la orientación del sensor del generador desde el archivo JSON
             yaw_pitch_roll = self.get_generator_orientation(sensor_id="GEN_01")
             if yaw_pitch_roll:
                 sensor_name_prefix = "GEN_ACC"
@@ -131,9 +116,9 @@ class HDF5Reader:
                     sensor_data, yaw_pitch_roll, sensor_name_prefix
                 )
             else:
-                print("No se encontró la orientación para el sensor del generador.")
+                if self.debug:
+                    print("No se encontró la orientación para el sensor del generador.")
 
-            # Convertir a DataFrame
             df = pd.DataFrame(sensor_data)
 
         return df
@@ -147,7 +132,7 @@ class HDF5Reader:
         """
         with h5py.File(self.hdf5_file, "r") as f:
             dataset = f[dataset_name]
-            timestamps = list(dataset.keys())  # Convertir las claves a una lista
+            timestamps = list(dataset.keys())
             if print_timestamps:
                 print("Timestamps disponibles:")
                 for timestamp in timestamps:
@@ -165,35 +150,47 @@ class HDF5Reader:
         :param time_stamps: Lista de marcas de tiempo para las cuales cargar los datos.
         :return: DataFrame con los datos de los sensores para cada timestamp dado, incluyendo una columna de timestamp.
         """
-        all_data = []  # Lista para almacenar los DataFrames individuales
+        all_data = []
 
         with h5py.File(self.hdf5_file, "r") as f:
             for time_stamp in time_stamps:
-                dataset = f[dataset_name][time_stamp]
+                dataset = f[dataset_name].get(time_stamp)
+                if dataset is None:
+                    if self.debug:
+                        print(f"Advertencia: Timestamp {time_stamp} no encontrado en el dataset {dataset_name}.")
+                    continue
+
                 sensor_data = {}
-                time_data_shared = None  # Para almacenar la primera columna de Time
+                time_data_shared = None
 
-                # Iterar sobre todos los sensores y cargar datos de Time y Value
                 for signal_name in dataset.keys():
-                    if signal_name != "ChannelList":  # Evitar cargar la lista de canales
-                        time_data = dataset[signal_name]["Time"][()]
-                        value_data = dataset[signal_name]["Value"][()]
+                    if signal_name != "ChannelList":
+                        time_data = dataset[signal_name].get("Time")
+                        value_data = dataset[signal_name].get("Value")
 
-                        # Ignorar los sensores que tienen menos de 120,000 datos
+                        if time_data is None or value_data is None:
+                            if self.debug:
+                                print(f"Advertencia: 'Time' o 'Value' no encontrados para el sensor {signal_name} en el timestamp {time_stamp}.")
+                            continue
+
+                        time_data = time_data[()]
+                        value_data = value_data[()]
+
                         if len(time_data) >= 120000 and len(value_data) >= 120000:
-                            # Usar la primera columna de Time y aplicarla a todos los sensores
                             if time_data_shared is None:
-                                time_data_shared = (
-                                    time_data.flatten()
-                                )  # Guardar la primera columna de Time
-                                sensor_data["Time"] = (
-                                    time_data_shared  # Añadirla al DataFrame
-                                )
+                                time_data_shared = time_data.flatten()
+                                sensor_data["Time"] = time_data_shared
 
-                            # Aplanar las matrices de valores y almacenarlas
                             sensor_data[f"{signal_name}_Value"] = value_data.flatten()
+                        else:
+                            if self.debug:
+                                print(f"Advertencia: Sensor {signal_name} en el timestamp {time_stamp} tiene menos de 120,000 datos y será ignorado.")
 
-                # Obtener la orientación del sensor del generador desde el archivo JSON
+                if not sensor_data:
+                    if self.debug:
+                        print(f"Advertencia: No se encontraron datos válidos para el timestamp {time_stamp}.")
+                    continue
+
                 yaw_pitch_roll = self.get_generator_orientation(sensor_id="GEN_01")
                 if yaw_pitch_roll:
                     sensor_name_prefix = "GEN_ACC"
@@ -201,14 +198,18 @@ class HDF5Reader:
                         sensor_data, yaw_pitch_roll, sensor_name_prefix
                     )
                 else:
-                    print("No se encontró la orientación para el sensor del generador.")
+                    if self.debug:
+                        print("No se encontró la orientación para el sensor del generador.")
 
-                # Convertir a DataFrame y añadir la columna de timestamp
                 df = pd.DataFrame(sensor_data)
-                df['Timestamp'] = time_stamp  # Añadir la columna de timestamp
-                all_data.append(df)  # Añadir el DataFrame a la lista
+                df['Timestamp'] = time_stamp
+                all_data.append(df)
 
-        # Concatenar todos los DataFrames en uno solo
+        if not all_data:
+            if self.debug:
+                print("Error: No se encontraron objetos para concatenar. Asegúrese de que los timestamps proporcionados contienen datos válidos.")
+            return pd.DataFrame()
+
         combined_df = pd.concat(all_data, ignore_index=True)
 
         return combined_df
