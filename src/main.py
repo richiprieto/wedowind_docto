@@ -13,10 +13,10 @@ from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 import argparse  # Importación añadida
 from conformal_anomaly_detector import ConformalAnomalyDetector, ManualADPredictor
-import re
 from datetime import datetime
+from autoencoder_kan import AutoencoderKAN
 import h5py
-
+import re
 
 #######################
 #from deel.puncc.api.prediction import BasePredictor
@@ -47,7 +47,7 @@ def main():
     # Asegúrate de que el directorio 'output' existe
     os.makedirs('output', exist_ok=True)
 
-    base_path = "../"
+    #base_path = "../"
 
 # Cargar el dataset saludable
     path_saludable = "../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
@@ -73,11 +73,11 @@ def main():
     train_subset = train_timestamps[:subset_size]
     # Solo para probar minimizar el dataset de entrenamiento, cuestiones de tiempo
     train_subset = train_subset[:10]
-    #print(train_subset)
+   
 
     #test_subset = train_timestamps[subset_size:subset_size+10]
     #test_subset = train_timestamps[len(train_subset):len(train_subset)+10]
-    test_subset = train_timestamps[22:62]
+    test_subset = train_timestamps[58:64]
     # Dividir los primeros 100 timestamps en entrenamiento, calibración y validación
     train_end = int(0.8 * len(train_subset))  # 80 timestamps para entrenamiento
     print(train_end)
@@ -183,9 +183,11 @@ def main():
     input_size = df_train_windows.shape[1]
 
     if not args.only_testing:
+
         # Entrenar el autoencoder con el conjunto de entrenamiento y validación
         print("Entrenando el autoencoder con early stopping")
-        model = AutoencoderMLP(input_size).to(device)
+        model = AutoencoderKAN(input_size).to(device)
+        #model = AutoencoderMLP(input_size).to(device)
         trained_model, loss_history, val_loss_history = train_autoencoder(
             model,
             df_train_windows,
@@ -244,7 +246,8 @@ def main():
     # Cargar el mejor modelo guardado
     modelos_existentes = [archivo for archivo in os.listdir('output') if archivo.endswith('.pth')]
     print("Cargando el modelo")
-    best_model = AutoencoderMLP(input_size).to(device)
+    #best_model = AutoencoderMLP(input_size).to(device)
+    best_model = AutoencoderKAN(input_size).to(device)
     best_model.load_state_dict(torch.load('output/'+modelos_existentes[0]))
     best_model.eval()
 
