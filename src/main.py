@@ -3,7 +3,7 @@ import numpy as np
 import random
 from read_hdf5 import HDF5Reader
 from train_autoencoder import train_autoencoder
-from conformal_detection import conformal_anomaly_detection
+#from conformal_detection import conformal_anomaly_detection
 from autoencoder_mlp import AutoencoderMLP
 import matplotlib.pyplot as plt
 import os
@@ -48,12 +48,32 @@ def main():
     os.makedirs('output', exist_ok=True)
 
     #base_path = "../"
+    
+    # Obtener el directorio actual
+    current_dir = os.getcwd()
+    print(f"Directorio actual: {current_dir}")
 
-# Cargar el dataset saludable
-    path_saludable = "../aventa_failure_flexible_coupling_of_collective_pitch_drive/"
+    # Cargar el dataset saludable
+    path_saludable = "../../primer_modelo"
+    
+    # Listar archivos en el directorio
+    if os.path.exists(path_saludable):
+        print("\nArchivos en el directorio:")
+        for file in os.listdir(path_saludable):
+            print(f"- {file}")
+    else:
+        print(f"El directorio {path_saludable} no existe")
+
     file_path_train = os.path.join(path_saludable, "Aventa_Taggenberg_16_02_2022.hdf5")
     json_file_train = os.path.join(path_saludable, "Aventa_sensors.json")
     dataset_name = "Aventa"
+
+    if not os.path.exists(file_path_train):
+        print(f"Error: File not found at {file_path_train}")
+        return
+    if not os.path.exists(json_file_train):
+        print(f"Error: JSON file not found at {json_file_train}")
+        return
 
     reader_train = HDF5Reader(file_path_train, json_file_train)
     
@@ -138,7 +158,7 @@ def main():
 
     # Parámetros de ventana
     window_size = 400
-    step_size = 100
+    step_size = 400
 
     # Función para crear ventanas
     def create_windows(data, window_size, step_size):
