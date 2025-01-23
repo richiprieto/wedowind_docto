@@ -204,11 +204,11 @@ def main():
         
         del trained_model, loss_history, val_loss_history, df_train_windows, df_val_windows  # Liberar memoria
         gc.collect()  # Recolectar basura
-    else:
-        modelos_existentes = [f for f in os.listdir('output') if f.endswith('.pth')]
-        if not modelos_existentes:
-            print("No hay modelos guardados")
-            return
+
+    modelos_existentes = [f for f in os.listdir('output') if f.endswith('.pth')]
+    if not modelos_existentes:
+        print("No hay modelos guardados")
+        return
 
     logging.info("Cargando mejor modelo")
     best_model = AutoencoderKAN(input_size).to(device)
