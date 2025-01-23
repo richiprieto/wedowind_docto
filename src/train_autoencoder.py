@@ -95,15 +95,3 @@ def train_autoencoder(
 
     return model, loss_history, val_loss_history
 
-
-if __name__ == "__main__":
-    # Ejemplo de uso
-    from read_hdf5 import load_hdf5_file
-
-    file_path = "data/your_dataset.h5"
-    dataset_name = "SCADA_data"
-    data = load_hdf5_file(file_path, dataset_name)
-
-    input_size = data.shape[1]
-    model = AutoencoderLSTM(input_size)
-    train_autoencoder(model, data, epochs=50, learning_rate=0.001, batch_size=32)

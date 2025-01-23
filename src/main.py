@@ -66,9 +66,9 @@ def main():
     args = parser.parse_args()
 
     set_seed()
-    device = "cpu"
+    # Configurar dispositivo: GPU solo para entrenamiento
+    device = "cuda" if torch.cuda.is_available() and not args.only_testing else "cpu"
     logging.info(f"Iniciando ejecución en dispositivo: {device}")
-
     os.makedirs('output', exist_ok=True)
 
     # Configuración de paths según el flag
@@ -137,8 +137,9 @@ def main():
     logging.info("Normalizando datos")
     scaler = MinMaxScaler()
     if args.only_testing:
-        df_calibration_normalized = scaler.fit_transform(df_calibration)
-        del df_train, df_valid  # Liberar memoria
+        df_train_normalized = scaler.fit_transform(df_train)
+        df_calibration_normalized = scaler.transform(df_calibration)
+        del df_train, df_valid, df_train_normalized  # Liberar memoria
         gc.collect()  # Recolectar basura
     else:
         df_train_normalized = scaler.fit_transform(df_train)
@@ -182,6 +183,8 @@ def main():
             device=device
         )
 
+        # Mover modelo a CPU antes de guardar
+        trained_model.cpu()
         mejor_epoca = np.argmin(val_loss_history) + 1
         for archivo in os.listdir('output'):
             if archivo.endswith('.pth'):
@@ -211,9 +214,16 @@ def main():
         return
 
     logging.info("Cargando mejor modelo")
-    best_model = AutoencoderKAN(input_size).to(device)
-    best_model.load_state_dict(torch.load(os.path.join('output', modelos_existentes[0])))
+    # Forzar carga en CPU aunque se haya entrenado en GPU
+    best_model = AutoencoderKAN(input_size).to('cpu')
+    best_model.load_state_dict(
+        torch.load(
+            os.path.join('output', modelos_existentes[0]),
+            map_location=torch.device('cpu')  # Asegurar carga en CPU
+        )
+    )
     best_model.eval()
+
 
     logging.info("Entrenando detector de anomalías")
     manual_predictor = ManualADPredictor(best_model)
