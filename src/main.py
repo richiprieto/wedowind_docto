@@ -171,7 +171,8 @@ def main():
         gc.collect()  # Recolectar basura
         
         logging.info("Entrenando modelo")
-        model = AutoencoderKAN(input_size).to(device)
+        #model = AutoencoderKAN(input_size).to(device)
+        model = AutoencoderMLP(input_size).to(device)
         trained_model, loss_history, val_loss_history = train_autoencoder(
             model,
             df_train_windows,
@@ -215,7 +216,8 @@ def main():
 
     logging.info("Cargando mejor modelo")
     # Forzar carga en CPU aunque se haya entrenado en GPU
-    best_model = AutoencoderKAN(input_size).to('cpu')
+    #best_model = AutoencoderKAN(input_size).to('cpu')
+    best_model = AutoencoderMLP(input_size).to('cpu')
     best_model.load_state_dict(
         torch.load(
             os.path.join('output', modelos_existentes[0]),
