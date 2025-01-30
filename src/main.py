@@ -8,7 +8,7 @@ from autoencoder_mlp import AutoencoderMLP
 import matplotlib.pyplot as plt
 import os
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.model_selection import train_test_split
 import argparse
 from conformal_anomaly_detector import ConformalAnomalyDetector, ManualADPredictor
@@ -76,7 +76,7 @@ def main():
         logging.info("Usando dataset de prueba original")
         base_path = "../../primer_modelo"
         train_files = [os.path.join(base_path, "Aventa_Taggenberg_16_02_2022.hdf5")]
-        test_file = os.path.join(base_path, "Aventa_Taggenberg_16_02_2022.hdf5")
+        test_files = [os.path.join(base_path, "Aventa_Taggenberg_16_02_2022.hdf5")]
         json_file = os.path.join(base_path, "Aventa_sensors.json")
     else:
         logging.info("Usando nuevo conjunto de datasets")
@@ -84,10 +84,12 @@ def main():
         train_files = [
             os.path.join(base_path, "Aventa_Taggenberg_06_02_2022.hdf5"),
             os.path.join(base_path, "Aventa_Taggenberg_11_02_2022.hdf5"),
-            os.path.join(base_path, "Aventa_Taggenberg_14_02_2022.hdf5"),
-            os.path.join(base_path, "Aventa_Taggenberg_15_02_2022.hdf5")
+            os.path.join(base_path, "Aventa_Taggenberg_14_02_2022.hdf5")
         ]
-        test_file = os.path.join(base_path, "Aventa_Taggenberg_16_02_2022.hdf5")
+        test_files = [
+            os.path.join(base_path, "Aventa_Taggenberg_15_02_2022.hdf5"),
+            os.path.join(base_path, "Aventa_Taggenberg_16_02_2022.hdf5")
+        ]
         json_file = os.path.join(base_path, "Aventa_sensors.json")
 
     # Cargar datos de entrenamiento/validación
@@ -135,7 +137,7 @@ def main():
 
     # Resto del procesamiento (igual para ambos casos)
     logging.info("Normalizando datos")
-    scaler = MinMaxScaler()
+    scaler = StandardScaler()
     if args.only_testing:
         df_train_normalized = scaler.fit_transform(df_train)
         df_calibration_normalized = scaler.transform(df_calibration)
@@ -239,85 +241,89 @@ def main():
 
     # Antes del bucle de procesamiento
     batch_size = 30
-    test_reader = HDF5Reader(test_file, json_file)
-    test_timestamps = test_reader.print_timestamps(dataset_name, print_timestamps=False)
-    total_timestamps = len(test_timestamps)
-    test_subset = test_timestamps
-    test_batches = [(i, min(i + batch_size, total_timestamps)) 
-                    for i in range(0, total_timestamps, batch_size)]
-    
-    # Procesamiento por batches de prueba
-    for batch_num, (batch_start, batch_end) in enumerate(test_batches, 1):
-        logging.info(f"Procesando batch {batch_num}: timestamps {batch_start}-{batch_end-1}")
+    for test_file_entry in test_files:
+        # Extraer fecha del nombre del archivo
+        date_match = re.search(r'(\d{2}_\d{2}_\d{4})\.hdf5', test_file_entry)
+        date_prefix = date_match.group(1) if date_match else "unknown_date"
         
-        batch_subset = test_subset[batch_start:batch_end]
-        df_test = test_reader.load_all_signals_for_timestamps(dataset_name, batch_subset)
-        if df_test.empty:
-            logging.warning(f"Batch {batch_num} vacío")
-            continue
+        test_reader = HDF5Reader(test_file_entry, json_file)
+        test_timestamps = test_reader.print_timestamps(dataset_name, print_timestamps=False)
+        total_timestamps = len(test_timestamps)
+        test_subset = test_timestamps
+        test_batches = [(i, min(i + batch_size, total_timestamps)) 
+                        for i in range(0, total_timestamps, batch_size)]
+        
+        for batch_num, (batch_start, batch_end) in enumerate(test_batches, 1):
+            logging.info(f"Procesando batch {batch_num}: timestamps {batch_start}-{batch_end-1}")
             
-        df_test1 = df_test.copy()
-        df_test_clean = df_test.drop(columns=['Time', 'Timestamp'], errors='ignore')
-        df_test_normalized = scaler.transform(df_test_clean)
-        
-        del df_test, df_test_clean  # Liberar memoria
-        gc.collect()  # Recolectar basura
-        
-        df_test_windows = create_windows(df_test_normalized, window_size, step_size)
-        windowed_timestamps = pd.Series(create_windowed_timestamps(df_test1['Timestamp'], window_size, step_size))
-        
-        del df_test_normalized, df_test1  # Liberar memoria
-        gc.collect()  # Recolectar basura
-        
-        if df_test_windows.size == 0:
-            logging.warning(f"Batch {batch_num} no tiene ventanas válidas")
-            continue
+            batch_subset = test_subset[batch_start:batch_end]
+            df_test = test_reader.load_all_signals_for_timestamps(dataset_name, batch_subset)
+            if df_test.empty:
+                logging.warning(f"Batch {batch_num} vacío")
+                continue
+            
+            df_test1 = df_test.copy()
+            df_test_clean = df_test.drop(columns=['Time', 'Timestamp'], errors='ignore')
+            df_test_normalized = scaler.transform(df_test_clean)
+            
+            del df_test, df_test_clean  # Liberar memoria
+            gc.collect()  # Recolectar basura
+            
+            df_test_windows = create_windows(df_test_normalized, window_size, step_size)
+            windowed_timestamps = pd.Series(create_windowed_timestamps(df_test1['Timestamp'], window_size, step_size))
+            
+            del df_test_normalized, df_test1  # Liberar memoria
+            gc.collect()  # Recolectar basura
+            
+            if df_test_windows.size == 0:
+                logging.warning(f"Batch {batch_num} no tiene ventanas válidas")
+                continue
 
-        reconstruction_error = manual_cad_05.predictor.predict(df_test_windows)
-        anomalies_05 = reconstruction_error > q_hat_05
-        anomalies_10 = reconstruction_error > q_hat_10
-        
-        del df_test_windows  # Liberar memoria
-        gc.collect()  # Recolectar basura
+            reconstruction_error = manual_cad_05.predictor.predict(df_test_windows)
+            anomalies_05 = reconstruction_error > q_hat_05
+            anomalies_10 = reconstruction_error > q_hat_10
+            
+            del df_test_windows  # Liberar memoria
+            gc.collect()  # Recolectar basura
 
-        # Guardar CSV por batch
-        df_batch = pd.DataFrame({
-            'Timestamp': windowed_timestamps,
-            'Error_Reconstrucción': reconstruction_error,
-            'Anomalia_05': anomalies_05.astype(int),
-            'Anomalia_10': anomalies_10.astype(int)
-        })
-        batch_csv_path = os.path.join('output', f'reconstruction_batch_{batch_num}.csv')
-        df_batch.to_csv(batch_csv_path, index=False)
-        logging.info(f"CSV guardado: {batch_csv_path}")
-        
-        del df_batch  # Liberar memoria
-        gc.collect()  # Recolectar basura
+            # Guardar CSV por batch
+            df_batch = pd.DataFrame({
+                'Timestamp': windowed_timestamps,
+                'Error_Reconstrucción': reconstruction_error,
+                'Anomalia_05': anomalies_05.astype(int),
+                'Anomalia_10': anomalies_10.astype(int)
+            })
+            batch_csv_path = os.path.join('output', f'reconstruction_{date_prefix}_batch_{batch_num}.csv')
+            df_batch.to_csv(batch_csv_path, index=False)
+            logging.info(f"CSV guardado: {batch_csv_path}")
+            
+            del df_batch  # Liberar memoria
+            gc.collect()  # Recolectar basura
 
-        # Generar gráfico por batch
-        plt.figure(figsize=(12, 6))
-        plt.plot(reconstruction_error, label='Error de reconstrucción')
-        plt.axhline(q_hat_05, color='r', linestyle='--', label='Umbral (α=0.05)')
-        plt.axhline(q_hat_10, color='g', linestyle='--', label='Umbral (α=0.1)')
-        
-        unique_indices = []
-        unique_timestamps = []
-        prev_ts = None
-        for idx, ts in enumerate(windowed_timestamps):
-            if ts != prev_ts:
-                unique_indices.append(idx)
-                unique_timestamps.append(ts)
-                prev_ts = ts
+            # Generar gráfico por batch
+            plt.figure(figsize=(12, 6))
+            plt.plot(reconstruction_error, label='Error de reconstrucción')
+            plt.axhline(q_hat_05, color='r', linestyle='--', label='Umbral (α=0.05)')
+            plt.axhline(q_hat_10, color='g', linestyle='--', label='Umbral (α=0.1)')
+            
+            unique_indices = []
+            unique_timestamps = []
+            prev_ts = None
+            for idx, ts in enumerate(windowed_timestamps):
+                if ts != prev_ts:
+                    unique_indices.append(idx)
+                    unique_timestamps.append(ts)
+                    prev_ts = ts
                 
-        plt.xticks(unique_indices, unique_timestamps, rotation=45, ha='right')
-        plt.title(f'Detección de anomalías - Batch {batch_num}')
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(os.path.join('output', f'anomaly_batch_{batch_num}.png'))
-        plt.close()
-        
-        del reconstruction_error, anomalies_05, anomalies_10, windowed_timestamps  # Liberar memoria
-        gc.collect()  # Recolectar basura
+            plt.xticks(unique_indices, unique_timestamps, rotation=45, ha='right')
+            plt.title(f'Detección de anomalías - Batch {batch_num}')
+            plt.legend()
+            plt.tight_layout()
+            plt.savefig(os.path.join('output', f'anomaly_{date_prefix}_batch_{batch_num}.png'))
+            plt.close()
+            
+            del reconstruction_error, anomalies_05, anomalies_10, windowed_timestamps  # Liberar memoria
+            gc.collect()  # Recolectar basura
 
     logging.info("Proceso completado. Resultados guardados en 'output'.")
 
