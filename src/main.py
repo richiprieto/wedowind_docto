@@ -80,17 +80,34 @@ def main():
         json_file = os.path.join(base_path, "Aventa_sensors.json")
     else:
         logging.info("Usando nuevo conjunto de datasets")
-        base_path = "../../primer_modelo"
+        base_path = "../../segundo_modelo"
         train_files = [
-            os.path.join(base_path, "Aventa_Taggenberg_06_02_2022.hdf5"),
-            os.path.join(base_path, "Aventa_Taggenberg_11_02_2022.hdf5"),
-            os.path.join(base_path, "Aventa_Taggenberg_14_02_2022.hdf5")
+            os.path.join(base_path, "tcv/Aventa_Taggenberg_24_03_2022.hdf5"),
+            os.path.join(base_path, "tcv/Aventa_Taggenberg_08_04_2022.hdf5"),
+            os.path.join(base_path, "tcv/Aventa_Taggenberg_09_04_2022.hdf5"),
+            os.path.join(base_path, "tcv/Aventa_Taggenberg_07_05_2022.hdf5"),
+            os.path.join(base_path, "tcv/Aventa_Taggenberg_20_06_2022.hdf5"),
+            os.path.join(base_path, "tcv/Aventa_Taggenberg_07_08_2022.hdf5"),
+            os.path.join(base_path, "tcv/Aventa_Taggenberg_17_08_2022.hdf5"),
+            os.path.join(base_path, "tcv/Aventa_Taggenberg_03_09_2022.hdf5"),
+            os.path.join(base_path, "tcv/Aventa_Taggenberg_14_10_2022.hdf5")
         ]
         test_files = [
-            os.path.join(base_path, "Aventa_Taggenberg_15_02_2022.hdf5"),
-            os.path.join(base_path, "Aventa_Taggenberg_16_02_2022.hdf5")
+            os.path.join(base_path, "test/Aventa_Taggenberg_01_11_2022.hdf5"),
+            os.path.join(base_path, "test/Aventa_Taggenberg_04_11_2022.hdf5"),
+            os.path.join(base_path, "test/Aventa_Taggenberg_08_12_2022.hdf5"),
+            os.path.join(base_path, "test/Aventa_Taggenberg_11_12_2022.hdf5"),
+            os.path.join(base_path, "test/Aventa_Taggenberg_17_12_2022.hdf5"),
+            os.path.join(base_path, "test/Aventa_Taggenberg_18_12_2022.hdf5"),
+            os.path.join(base_path, "test/Aventa_Taggenberg_19_12_2022.hdf5"),
+            os.path.join(base_path, "test/Aventa_Taggenberg_20_12_2022.hdf5"),
+            os.path.join(base_path, "test/Aventa_Taggenberg_23_12_2022.hdf5"),
+            os.path.join(base_path, "test/Aventa_Taggenberg_29_12_2022.hdf5"),
+            os.path.join(base_path, "test/Aventa_Taggenberg_04_01_2023.hdf5"),
+            os.path.join(base_path, "test/Aventa_Taggenberg_15_01_2023.hdf5"),
+            os.path.join(base_path, "test/Aventa_Taggenberg_21_01_2023.hdf5"),
         ]
-        json_file = os.path.join(base_path, "Aventa_sensors.json")
+        json_file = os.path.join(base_path, "tcv/Aventa_sensors.json")
 
     # Cargar datos de entrenamiento/validación
     full_train_df = None
@@ -173,8 +190,8 @@ def main():
         gc.collect()  # Recolectar basura
         
         logging.info("Entrenando modelo")
-        #model = AutoencoderKAN(input_size).to(device)
-        model = AutoencoderMLP(input_size).to(device)
+        model = AutoencoderKAN(input_size).to(device)
+        #model = AutoencoderMLP(input_size).to(device)
         trained_model, loss_history, val_loss_history = train_autoencoder(
             model,
             df_train_windows,
@@ -218,8 +235,8 @@ def main():
 
     logging.info("Cargando mejor modelo")
     # Forzar carga en CPU aunque se haya entrenado en GPU
-    #best_model = AutoencoderKAN(input_size).to('cpu')
-    best_model = AutoencoderMLP(input_size).to('cpu')
+    best_model = AutoencoderKAN(input_size).to('cpu')
+    #best_model = AutoencoderMLP(input_size).to('cpu')
     best_model.load_state_dict(
         torch.load(
             os.path.join('output', modelos_existentes[0]),
