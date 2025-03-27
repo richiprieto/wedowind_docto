@@ -1,6 +1,6 @@
 from load_data.load_dataset import process_multiple_files
 from preprocessing.cleaning import clean_dataset, detect_and_handle_outliers
-
+from preprocessing.normalization import normalize_dataset
 
 def main():
     base_path = "../../../aventa_rotor_icing/"
@@ -9,6 +9,7 @@ def main():
     train_dataset = process_multiple_files(file_list)
     train_dataset = clean_dataset(train_dataset)
     train_dataset = detect_and_handle_outliers(train_dataset)
+    train_dataset = normalize_dataset(train_dataset)
     print(train_dataset)
 if __name__ == "__main__":
     main()
